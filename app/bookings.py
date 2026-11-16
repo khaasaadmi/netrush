@@ -30,7 +30,8 @@ def _live_bookings(c, court_ids, start, end):
     marks = ",".join("?" * len(court_ids))
     return c.execute(
         f"SELECT court_id, start, end, status FROM bookings WHERE court_id IN ({marks}) "
-        "AND start < ? AND end > ? AND (status='confirmed' OR (status='pending' AND hold_until > ?))",
+        "AND start < ? AND end > ? AND (status='confirmed' OR (status IN ('pending','reserved') "
+        "AND hold_until > ?))",
         (*court_ids, clock.fmt(end), clock.fmt(start), clock.fmt(clock.now())),
     ).fetchall()
 
@@ -125,30 +126,109 @@ def _validate(court_id, day, start_hhmm, slots, name, phone):
     return court, day, start, end, name, phone, config.PRICES[court["sport"]] * slots
 
 
-def _insert(c, court, day, start, end, name, phone, amount, status, pay_status, source, email=None):
+def _insert(c, court, day, start, end, name, phone, amount, status, pay_status, source, email=None,
+            hold=None, discount=0, utm=None, heard=None):
     if _live_bookings(c, [court["id"]], start, end):
         raise BookingError("Sorry, that slot has just been booked. Please pick another.")
     if (reason := _blocked(_blocks(c, [court["id"]], day), court["id"], start, end)):
         raise BookingError(f"That court is reserved ({reason}) at that time")
     user = c.execute("SELECT id FROM users WHERE phone=?", (phone,)).fetchone()
-    hold = clock.fmt(clock.now() + timedelta(minutes=config.HOLD_MIN)) if status == "pending" else None
+    if status == "pending":
+        hold = clock.now() + timedelta(minutes=config.HOLD_MIN)
     return c.execute(
         "INSERT INTO bookings(ref,court_id,user_id,name,phone,start,end,amount,status,hold_until,created_at,"
-        "pay_status,source,email,access_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "pay_status,source,email,access_key,discount,utm,heard) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (secrets.token_hex(3).upper(), court["id"], user and user["id"], name, phone, clock.fmt(start),
-         clock.fmt(end), amount, status, hold, clock.fmt(clock.now()), pay_status, source, email,
-         secrets.token_urlsafe(12))).lastrowid
+         clock.fmt(end), amount - discount, status, hold and clock.fmt(hold), clock.fmt(clock.now()), pay_status,
+         source, email, secrets.token_urlsafe(12), discount, (utm or "")[:60] or None,
+         (heard or "")[:40] or None)).lastrowid
 
 
-def create(court_id, day, start_hhmm, slots, name, phone, email=None):
-    """Online booking, no account needed: holds the slot and opens a payment."""
+def first_booking_pct(phone, session_user):
+    """15% off the first booking, for a guest who has verified this mobile number by OTP
+    (= is logged in with it). 0 if not verified or the number has booked before."""
+    if not config.FIRST_BOOKING_DISCOUNT_PCT or not session_user or session_user.get("role"):
+        return 0
+    if session_user["phone"] != phone:
+        return 0
+    used = db.one(
+        "SELECT 1 AS x FROM bookings WHERE phone=? AND (status='confirmed' OR (status='cancelled' AND "
+        "pay_status='paid') OR (status IN ('pending','reserved') AND hold_until > ?)) LIMIT 1",
+        phone, clock.fmt(clock.now()))
+    return 0 if used else config.FIRST_BOOKING_DISCOUNT_PCT
+
+
+def reserve_deadline(start):
+    """When an unpaid reservation made now for a slot at `start` lapses, or None if too close to reserve."""
+    now = clock.now()
+    if start - now < timedelta(minutes=config.RESERVE_MIN_LEAD_MIN):
+        return None
+    return min(now + timedelta(hours=config.RESERVE_HOLD_HOURS), start - timedelta(minutes=30))
+
+
+def create(court_id, day, start_hhmm, slots, name, phone, email=None, mode="pay", session_user=None, utm=None,
+           heard=None):
+    """Online booking by a guest. mode 'pay': hold the slot and open a payment.
+    mode 'reserve': hold it for RESERVE_HOLD_HOURS, to be confirmed by paying or calling."""
+    if mode not in ("pay", "reserve"):
+        raise BookingError("Choose pay now or reserve")
     court, day, start, end, name, phone, amount = _validate(court_id, day, start_hhmm, slots, name, phone)
     email = _clean_email(email)
+    discount = amount * first_booking_pct(phone, session_user) // 100
+    if mode == "reserve":
+        deadline = reserve_deadline(start)
+        if not deadline:
+            raise BookingError(f"This slot starts in under {config.RESERVE_MIN_LEAD_MIN} minutes, so it can't be "
+                               "reserved. Please pay now to book it.")
+        with db.tx() as c:
+            bid = _insert(c, court, day, start, end, name, phone, amount, "reserved", "unpaid", "online", email,
+                          hold=deadline, discount=discount, utm=utm, heard=heard)
+        b = get(bid)
+        notify.send("reservation_received", phone, {
+            "name": name.split()[0], "ref": b["ref"], "court": b["court_name"], "when": _when(b),
+            "deadline": deadline.strftime("%H:%M on %a %d %b"), "phone": config.ARENA_PHONE,
+            "amount": f"Rs {b['amount']}"}, dedupe_key=f"reserve:{bid}")
+        return {"booking": b, "payment": None}
+    if not config.ONLINE_PAY:
+        raise BookingError("Online payment isn't available yet. Please reserve the slot and pay at the venue.")
     with db.tx() as c:
-        bid = _insert(c, court, day, start, end, name, phone, amount, "pending", "unpaid", "online", email)
+        bid = _insert(c, court, day, start, end, name, phone, amount, "pending", "unpaid", "online", email,
+                      discount=discount, utm=utm, heard=heard)
     b = get(bid)
-    pay = payments.create_order("booking", amount, b["ref"], phone, b["user_id"], ref_id=bid)
-    return {"booking": b, "payment": pay}
+    return {"booking": b, "payment": start_payment(b)}
+
+
+def start_payment(b):
+    """Open an online payment for a booking that still owes money (new, reserved, or pay-at-venue)."""
+    if b["pay_status"] != "unpaid" or b["status"] not in ("pending", "reserved", "confirmed"):
+        raise BookingError("There is nothing to pay on this booking")
+    if not config.ONLINE_PAY:
+        raise BookingError(f"Online payment isn't available yet. Please call {config.ARENA_PHONE} or pay at the venue.")
+    return payments.create_order("booking", balance(b), b["ref"], b["phone"], b["user_id"], ref_id=b["id"])
+
+
+def confirm_reservation(booking_id, staff, paid=False, method="cash", advance=None):
+    """Reception confirms a held reservation after a call. paid=False: pay at the venue.
+    paid=True: money received now, in full or as an advance (`advance` rupees)."""
+    b = get(booking_id)
+    if not b or b["status"] != "reserved":
+        raise BookingError("This reservation is no longer waiting for confirmation")
+    got = 0
+    if paid:
+        got = b["amount"] if advance in (None, "") else int(advance)
+        if not 0 < got <= b["amount"]:
+            raise BookingError(f"Amount received should be between 1 and {b['amount']}")
+    paid = paid and got >= b["amount"]
+    with db.tx() as c:
+        cur = c.execute("UPDATE bookings SET status='confirmed', hold_until=NULL, payment_ref=?, pay_status=?, "
+                        "paid_at=? WHERE id=? AND status='reserved'",
+                        (f"CONFIRMED-{staff}", "paid" if paid else "unpaid",
+                         clock.fmt(clock.now()) if paid else None, booking_id))
+        if cur.rowcount != 1:
+            raise BookingError("This reservation is no longer waiting for confirmation")
+    if got:
+        payments.record_desk("booking", booking_id, got, b["phone"], b["user_id"], staff, method=method)
+    return _on_confirmed(booking_id)
 
 
 STAFF_MODES = {
@@ -158,27 +238,39 @@ STAFF_MODES = {
 }
 
 
-def create_by_staff(court_id, day, start_hhmm, slots, name, phone, mode, staff, email=None):
+def balance(b):
+    """What's still owed on a booking after any advance."""
+    return max(0, b["amount"] - payments.paid_total("booking", b["id"]))
+
+
+def create_by_staff(court_id, day, start_hhmm, slots, name, phone, mode, staff, email=None, method="cash",
+                    received=None):
     if mode not in STAFF_MODES:
         raise BookingError("Choose how this booking is paid")
     court, day, start, end, name, phone, amount = _validate(court_id, day, start_hhmm, slots, name, phone)
     email = _clean_email(email)
     pay_status, source = STAFF_MODES[mode]
+    # Paid at the desk: the amount actually received may be an advance (less than the price).
+    received = amount if received in (None, "") else int(received)
+    if mode == "desk_paid" and not 0 < received <= amount:
+        raise BookingError(f"Amount received should be between 1 and {amount}")
+    if mode == "desk_paid" and received < amount:
+        pay_status = "unpaid"  # balance still to collect
     with db.tx() as c:
         bid = _insert(c, court, day, start, end, name, phone, amount, "confirmed", pay_status, source, email)
         c.execute("UPDATE bookings SET payment_ref=?, paid_at=? WHERE id=?",
-                  (f"{mode.upper()}-{staff}", clock.fmt(clock.now()) if mode == "desk_paid" else None, bid))
+                  (f"{mode.upper()}-{staff}", clock.fmt(clock.now()) if pay_status == "paid" else None, bid))
     if mode == "desk_paid":
-        payments.record_desk("booking", bid, amount, phone, staff=staff)
+        payments.record_desk("booking", bid, received, phone, staff=staff, method=method)
     return _on_confirmed(bid)
 
 
-def mark_paid(booking_id, staff):
-    """A phone reservation settles up at the desk."""
+def mark_paid(booking_id, staff, method="cash"):
+    """The balance on a pay-at-venue booking is collected at the desk (cash / UPI QR / card)."""
     b = get(booking_id)
     if not b or b["pay_status"] != "unpaid" or b["status"] != "confirmed":
         raise BookingError("Nothing to collect on this booking")
-    payments.record_desk("booking", booking_id, b["amount"], b["phone"], b["user_id"], staff)
+    payments.record_desk("booking", booking_id, balance(b), b["phone"], b["user_id"], staff, method=method)
     db.conn().execute("UPDATE bookings SET pay_status='paid', paid_at=? WHERE id=?",
                       (clock.fmt(clock.now()), booking_id))
     return get(booking_id)
@@ -201,7 +293,10 @@ def fulfil(p):
     """Payment for a booking arrived (checkout or webhook). Confirm it, or refund it if we can't."""
     b = get(p["ref_id"])
     if b["status"] == "confirmed":
-        return b
+        if b["pay_status"] == "unpaid":  # confirmed as pay-at-venue, then paid online after all
+            db.conn().execute("UPDATE bookings SET pay_status='paid', payment_ref=?, paid_at=? WHERE id=?",
+                              (p["payment_id"], clock.fmt(clock.now()), b["id"]))
+        return get(b["id"])
     if b["status"] == "cancelled":
         payments.request_refund(p["id"], p["amount"])
         raise BookingError("This booking was cancelled; your payment is being refunded.")
@@ -220,7 +315,7 @@ def fulfil(p):
                       "hold_until=NULL WHERE id=?", (p["payment_id"], clock.fmt(clock.now()), b["id"]))
     if taken:
         payments.request_refund(p["id"], p["amount"])
-        raise BookingError("Payment received, but the slot was taken after your 10-minute hold ran out. "
+        raise BookingError("Payment received, but the slot was taken after your hold ran out. "
                            "Your money is being refunded automatically.")
     return _on_confirmed(b["id"])
 
@@ -244,11 +339,12 @@ def _when(b):
 def refund_quote(b, by="customer"):
     """What a cancellation right now would refund: {amount, pct, can_cancel, note}."""
     started = clock.parse(b["start"]) <= clock.now()
-    if b["status"] not in ("confirmed", "pending"):
+    if b["status"] not in ("confirmed", "pending", "reserved"):
         return {"can_cancel": False, "amount": 0, "pct": 0, "note": "Already " + b["status"]}
     if by == "customer" and started:
         return {"can_cancel": False, "amount": 0, "pct": 0, "note": "The slot has already started"}
-    if b["pay_status"] != "paid":
+    paid = payments.paid_total("booking", b["id"])  # may be an advance, less than the full price
+    if not paid:
         return {"can_cancel": True, "amount": 0, "pct": 0, "note": "Nothing was charged"}
     if by == "staff":
         pct = 100
@@ -256,7 +352,7 @@ def refund_quote(b, by="customer"):
         hours = (clock.parse(b["start"]) - clock.now()).total_seconds() / 3600
         pct = 100 if hours >= config.REFUND_FULL_HOURS else (
             config.REFUND_PARTIAL_PCT if hours >= config.REFUND_PARTIAL_HOURS else 0)
-    amount = b["amount"] * pct // 100
+    amount = paid * pct // 100
     note = (f"Full refund of Rs {amount}" if pct == 100 else
             f"{pct}% refund: Rs {amount} (cancelled under {config.REFUND_FULL_HOURS}h before)" if pct else
             f"No refund (under {config.REFUND_PARTIAL_HOURS}h before start)")
@@ -279,20 +375,25 @@ def cancel(booking_id, by="customer"):
         raise BookingError(f"This booking can't be cancelled: {q['note'].lower()}")
     with db.tx() as c:
         cur = c.execute("UPDATE bookings SET status='cancelled', cancelled_at=?, cancelled_by=?, refund_amount=?, "
-                        "hold_until=NULL WHERE id=? AND status IN ('confirmed','pending')",
+                        "hold_until=NULL WHERE id=? AND status IN ('confirmed','pending','reserved')",
                         (clock.fmt(clock.now()), by, q["amount"], booking_id))
         if cur.rowcount != 1:
             raise BookingError("This booking was already cancelled")
     access.revoke_for_booking(booking_id, f"cancelled by {by}")
-    p = payments.for_ref("booking", booking_id)
-    if p and q["amount"]:
-        p = payments.request_refund(p["id"], q["amount"])
-    if b["status"] == "confirmed":
+    p, left = None, q["amount"]
+    for pay in db.all_("SELECT * FROM payments WHERE kind='booking' AND ref_id=? AND status='paid' ORDER BY id DESC",
+                       booking_id):  # usually one payment; an advance plus a balance makes two
+        if left <= 0:
+            break
+        part = min(left, pay["amount"])
+        p = payments.request_refund(pay["id"], part) or pay
+        left -= part
+    if b["status"] in ("confirmed", "reserved"):
         if q["amount"] and p and p["provider"] == "desk":
             refund = f"Rs {q['amount']} will be handed back to you at the front desk."
         elif q["amount"]:
             refund = f"Rs {q['amount']} is being refunded to your original payment method."
-        elif b["pay_status"] == "paid":
+        elif payments.paid_total("booking", booking_id):
             refund = q["note"] + "."
         else:
             refund = "Nothing was charged."
@@ -303,8 +404,16 @@ def cancel(booking_id, by="customer"):
 
 
 def expire_holds():
-    db.conn().execute("UPDATE bookings SET status='expired' WHERE status='pending' AND hold_until <= ?",
-                      (clock.fmt(clock.now()),))
+    now = clock.fmt(clock.now())
+    db.conn().execute("UPDATE bookings SET status='expired' WHERE status='pending' AND hold_until <= ?", (now,))
+    # Reservations nobody confirmed in time: release the slot and tell the customer.
+    for b in db.all_("SELECT b.*, c.name AS court_name FROM bookings b JOIN courts c ON c.id=b.court_id "
+                     "WHERE b.status='reserved' AND b.hold_until <= ?", now):
+        cur = db.conn().execute("UPDATE bookings SET status='expired' WHERE id=? AND status='reserved'", (b["id"],))
+        if cur.rowcount == 1:
+            notify.send("reservation_released", b["phone"], {
+                "name": b["name"].split()[0], "ref": b["ref"], "court": b["court_name"], "when": _when(b)},
+                dedupe_key=f"released:{b['id']}")
 
 
 def lookup(ref, phone):

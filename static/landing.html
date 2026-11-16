@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NetRush · Badminton, Padel &amp; Pickleball Courts</title>
+<meta name="description" content="Book badminton, padel and pickleball courts at NetRush in seconds. Pay online or reserve and pay at the venue. Memberships and badminton academy.">
+<meta property="og:title" content="NetRush · Book a court in seconds">
+<meta property="og:description" content="Badminton, padel and pickleball. Pay online or reserve and pay at the venue.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="/brand/og.jpg">
+<meta name="theme-color" content="#336a29">
+<link rel="icon" href="/brand/favicon.png">
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
+<link rel="stylesheet" href="/app.css">
+<style>
+  main.wrap { padding-top: 18px; }
+  section { scroll-margin-top: 84px; }
+  .lp-hero { position: relative; overflow: hidden; border-radius: 30px; background: var(--night); color: #fff; isolation: isolate;
+    display: grid; grid-template-columns: 1.1fr .9fr; gap: 24px; align-items: center; padding: clamp(26px, 5vw, 56px);
+    border: 1px solid rgb(255 255 255 / .07); min-height: 460px; }
+  .lp-hero::before { content: ""; position: absolute; inset: 0; z-index: -1;
+    background: radial-gradient(700px 380px at 92% 0%, color-mix(in srgb, var(--lime) 34%, transparent), transparent 70%),
+      radial-gradient(500px 300px at 0% 100%, rgb(153 180 148 / .22), transparent 70%); }
+  .lp-hero h1 { color: #fff; font-size: clamp(2.3rem, 6vw, 4.2rem); line-height: .98; letter-spacing: -.045em; margin: 14px 0 16px; }
+  .lp-hero h1 em { font-style: normal; color: var(--lime); }
+  .lp-hero p.lead { color: rgb(255 255 255 / .76); font-size: 1.08rem; max-width: 46ch; }
+  .lp-hero .btn.big, .cta-band .btn.big { padding: 15px 26px; font-size: 1.02rem; }
+  .lp-hero .btn.ghost { background: transparent; color: #fff; border-color: rgb(255 255 255 / .28); }
+  .offer-tag { display: inline-flex; gap: 8px; align-items: center; background: var(--lime); color: var(--lime-ink); font-weight: 800;
+    font-size: .8rem; padding: 7px 12px; border-radius: 999px; }
+  .trust { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 26px; color: rgb(255 255 255 / .7); font-size: .85rem; }
+  .trust b { display: block; color: #fff; font-size: 1.25rem; letter-spacing: -.02em; }
+  .court { width: 100%; max-width: 420px; justify-self: center; filter: drop-shadow(0 30px 50px rgb(0 0 0 / .45)); transform: perspective(900px) rotateX(38deg) rotateZ(-18deg); }
+  @media (max-width: 860px) { .lp-hero { grid-template-columns: 1fr; min-height: 0; } .court { display: none; } }
+
+  .sec-head { margin: 56px 0 18px; }
+  .sec-head h2 { font-size: clamp(1.5rem, 3.4vw, 2.2rem); font-weight: 800; letter-spacing: -.035em; margin: 6px 0 0; }
+  .sport-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .scard { position: relative; overflow: hidden; border-radius: 24px; padding: 22px; background: var(--surface); border: 1px solid var(--line);
+    box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 10px; text-decoration: none; transition: transform .15s, box-shadow .15s; }
+  .scard:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+  .scard::after { content: ""; position: absolute; right: -50px; top: -50px; width: 170px; height: 170px; border-radius: 50%;
+    background: color-mix(in srgb, var(--c) 16%, transparent); }
+  .scard .ico { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c); }
+  .scard .ico svg { width: 32px; height: 32px; }
+  .scard h3 { font-size: 1.3rem; margin: 6px 0 0; }
+  .scard .price { font-size: 1.9rem; font-weight: 800; letter-spacing: -.03em; }
+  .scard .price small { font-size: .85rem; font-weight: 600; color: var(--ink-2); }
+  .scard .go { margin-top: auto; font-weight: 800; color: var(--c); display: inline-flex; gap: 6px; align-items: center; }
+  .how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; counter-reset: h; }
+  .how > div { counter-increment: h; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 22px; }
+  .how > div::before { content: counter(h); display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px;
+    background: var(--night); color: var(--lime); font-weight: 800; margin-bottom: 14px; }
+  .how h3 { font-size: 1.05rem; }
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .panel { border-radius: 26px; padding: clamp(22px, 4vw, 34px); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+  .panel.dark { background: var(--night); color: #fff; border-color: rgb(255 255 255 / .07); }
+  .panel.dark p, .panel.dark li { color: rgb(255 255 255 / .76); }
+  .panel .big { font-size: 2.6rem; font-weight: 800; letter-spacing: -.04em; }
+  .panel .big small { font-size: .95rem; font-weight: 600; opacity: .7; }
+  .panel ul { padding-left: 0; list-style: none; margin: 14px 0 20px; }
+  .panel li { padding-left: 28px; position: relative; margin: 9px 0; }
+  .panel li::before { content: "✓"; position: absolute; left: 0; width: 20px; height: 20px; border-radius: 50%; background: var(--lime);
+    color: var(--lime-ink); font-size: .7rem; font-weight: 800; display: grid; place-items: center; top: 2px; }
+  .cta-band { margin-top: 56px; border-radius: 30px; background: var(--lime); color: var(--lime-ink); padding: clamp(26px, 5vw, 48px);
+    display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  .cta-band h2 { font-size: clamp(1.5rem, 3.6vw, 2.3rem); margin: 0; letter-spacing: -.035em; }
+  .cta-band { background: var(--green) !important; color: #fff !important; }
+  .cta-band .btn { background: #fff; color: var(--night); }
+  .info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .info .card h3 { margin-bottom: 6px; }
+  details { border-bottom: 1px solid var(--line); padding: 16px 2px; }
+  details summary { font-weight: 700; cursor: pointer; list-style: none; display: flex; }
+  details summary::after { content: "+"; margin-left: auto; font-size: 1.3rem; line-height: 1; color: var(--ink-3); }
+  details[open] summary::after { content: "–"; }
+  details p { margin: 10px 0 0; color: var(--ink-2); max-width: 70ch; }
+  footer { border-top: 1px solid var(--line); margin-top: 60px; padding: 28px 0 40px; color: var(--ink-2); font-size: .88rem; }
+  footer .wrap { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+  footer a { text-decoration: none; font-weight: 600; }
+  .mobile-cta { display: none; }
+  @media (max-width: 860px) {
+    .sport-cards, .how, .duo, .info { grid-template-columns: 1fr; }
+    .mobile-cta { display: block; position: fixed; left: 10px; right: 10px; bottom: 10px; z-index: 30; }
+    .mobile-cta .btn { width: 100%; padding: 15px; box-shadow: var(--shadow-lg); }
+    footer { padding-bottom: 90px; }
+  }
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="logo" href="/"><i></i><span>NetRush</span></a>
+  <nav><a href="#sports">Courts</a><a href="#membership">Membership</a><a href="#academy">Academy</a><a href="#visit">Visit</a>
+    <a href="/portal" class="keep">Login</a><a href="/book" class="cta">Book a court</a></nav>
+</div></header>
+
+<main class="wrap">
+  <section class="lp-hero">
+    <div>
+      <span class="offer-tag hidden" id="offer-tag"></span>
+      <h1>Your court is <em>one tap away.</em></h1>
+      <p class="lead">Badminton, padel and pickleball under one roof. See what's free, pick your hour and book it
+        in under a minute. <span id="lead-pay">Pay online, or reserve now and pay at the venue.</span></p>
+      <div class="row" style="margin-top:22px">
+        <a class="btn lime big" href="/book">Book a court →</a>
+        <a class="btn ghost big" href="#sports">See prices</a></div>
+      <div class="trust">
+        <div><b id="t-courts">5</b>courts</div><div><b id="t-hours">6 am – 11 pm</b>every day</div>
+        <div><b>3 sports</b>one arena</div></div>
+    </div>
+    <svg class="court" viewBox="0 0 300 420" aria-hidden="true">
+      <rect x="4" y="4" width="292" height="412" rx="18" fill="#2a5a23" stroke="#c3e6ae" stroke-width="3"/>
+      <g stroke="#ffffff" stroke-opacity=".85" stroke-width="2.5" fill="none">
+        <rect x="30" y="30" width="240" height="360"/><line x1="30" y1="210" x2="270" y2="210" stroke="#c3e6ae" stroke-width="4"/>
+        <line x1="30" y1="150" x2="270" y2="150"/><line x1="30" y1="270" x2="270" y2="270"/>
+        <line x1="150" y1="30" x2="150" y2="150"/><line x1="150" y1="270" x2="150" y2="390"/>
+        <line x1="52" y1="30" x2="52" y2="390"/><line x1="248" y1="30" x2="248" y2="390"/></g>
+      <circle cx="205" cy="110" r="9" fill="#ffffff"/>
+    </svg>
+  </section>
+
+  <section id="sports">
+    <div class="sec-head"><div class="eyebrow">Choose your game</div><h2>Three sports. Book any of them now.</h2></div>
+    <div class="sport-cards" id="sport-cards"></div>
+  </section>
+
+  <section id="how">
+    <div class="sec-head"><div class="eyebrow">How it works</div><h2>From sofa to court in three steps.</h2></div>
+    <div class="how">
+      <div><h3>Pick a slot</h3><p class="muted">Live availability for every court, up to two weeks ahead. Book one to four hours.</p></div>
+      <div><h3 id="how2-h">Pay now, or reserve</h3><p class="muted" id="how2-p">Pay by UPI, card or netbanking and you're confirmed on the spot. Or reserve
+        and confirm within <span class="rh">3</span> hours.</p></div>
+      <div><h3>Show up and play</h3><p class="muted">Show your booking at the reception and head to your court. Plans changed?
+        Cancel online and the refund is automatic.</p></div>
+    </div>
+  </section>
+
+  <section id="membership">
+    <div class="sec-head"><div class="eyebrow">Play more, pay less</div><h2>Membership &amp; academy</h2></div>
+    <div class="duo">
+      <div class="panel dark">
+        <div class="eyebrow" style="color:rgb(255 255 255 / .5)">NetRush membership</div>
+        <div class="big"><span id="m-price">₹2,000</span> <small>/ month</small></div>
+        <ul><li>All courts, one monthly pass</li><li id="m-online">Join and renew online in a minute</li>
+          <li>Reminders before your plan ends, so you never lose a day</li>
+          <li>Refer a friend: <b style="color:#fff" id="m-ref">₹300</b> off your next month when they join</li></ul>
+        <a class="btn lime" href="/portal">Become a member →</a>
+      </div>
+      <div class="panel" id="academy">
+        <div class="eyebrow">Badminton academy</div>
+        <div class="big" style="font-size:1.9rem;margin-top:6px">Coaching for juniors and adults</div>
+        <ul><li>Small batches by level: beginner to advanced</li><li>Qualified coaches, structured sessions</li>
+          <li>Parents and players can track schedule, fees and attendance online</li></ul>
+        <a class="btn" id="academy-call" href="#visit">Ask about batches</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta-band">
+    <div><h2 id="band-h">First time here? Your first booking is on us, a little.</h2>
+      <p style="margin:8px 0 0;font-weight:600" id="band-p">Verify your mobile number while booking and save on your first court.</p></div>
+    <span class="spacer"></span><a class="btn big" href="/book">Book now →</a>
+  </section>
+
+  <section id="visit">
+    <div class="sec-head"><div class="eyebrow">Visit us</div><h2>Find NetRush</h2></div>
+    <div class="info">
+      <div class="card"><h3>Where</h3><p class="muted" id="v-address"></p><a class="btn ghost sm hidden" id="v-maps" target="_blank" rel="noopener">Open in Maps</a></div>
+      <div class="card"><h3>Hours</h3><p class="muted"><span id="v-hours"></span>, all seven days.</p></div>
+      <div class="card"><h3>Talk to us</h3><p class="muted">Bookings, memberships, academy and events.</p>
+        <a class="btn sm" id="v-call"></a> <a class="btn ghost sm hidden" id="v-ig" target="_blank" rel="noopener">Instagram</a></div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="sec-head"><div class="eyebrow">Good to know</div><h2>Questions</h2></div>
+    <div class="card">
+      <details><summary>Do I need an account to book?</summary><p>No. Your name and mobile number are enough. If you verify your number with a one-time code you also get the first-booking discount and can manage your bookings online.</p></details>
+      <details><summary>How does “reserve, pay at venue” work?</summary><p id="faq-reserve">We hold your slot for <span class="rh">3</span> hours. Within that time, confirm it by paying online from your booking link or by calling us to pay an advance. Reservations that aren't confirmed are released automatically so others can book.</p></details>
+      <details><summary>Can I cancel?</summary><p id="faq-cancel"></p></details>
+      <details><summary>Do you rent rackets and paddles?</summary><p>Yes, equipment is available at the reception. Ask the team when you arrive.</p></details>
+      <details style="border-bottom:0"><summary>Can I book for a group or an event?</summary><p>Yes. Call us and we'll block the courts you need for tournaments, corporate sessions or parties.</p></details>
+    </div>
+  </section>
+</main>
+
+<footer><div class="wrap">
+  <a class="logo" href="/"><i></i><span>NetRush</span></a>
+  <span>© <span id="year"></span> NetRush. All rights reserved.</span><span class="spacer"></span>
+  <a href="/book">Book a court</a><a href="/portal">Member login</a><a href="/admin">Staff</a>
+</div></footer>
+<div class="mobile-cta"><a class="btn" href="/book">Book a court →</a></div>
+
+<script src="/common.js"></script>
+<script>
+$("#year").textContent = new Date().getFullYear();
+const h12 = h => (h % 12 || 12) + (h < 12 || h === 24 ? " am" : " pm");
+const BLURB = { badminton: "Wooden-sprung courts with proper lighting. Singles or doubles.",
+  padel: "The fastest-growing racket sport. Glass court, doubles play.", pickleball: "Easy to learn, hard to stop. Great for all ages." };
+api("/api/config").then(cfg => {
+  demoBar(cfg); rememberCampaign();
+  const hours = `${h12(cfg.open_hour)} – ${h12(cfg.close_hour)}`, tel = cfg.arena.phone.replace(/\s/g, "");
+  $("#t-courts").textContent = cfg.sports.reduce((n, s) => n + s.courts.length, 0);
+  $("#t-hours").textContent = hours; $("#v-hours").textContent = hours;
+  $("#sport-cards").innerHTML = cfg.sports.map(s => `<a class="scard" style="--c:var(--${s.sport})" href="/book?sport=${s.sport}">
+      <span class="ico">${SPORT_ICON[s.sport] || ""}</span><h3>${SPORT_LABEL[s.sport] || s.sport}</h3>
+      <p class="muted small" style="margin:0">${BLURB[s.sport] || ""}</p>
+      <div class="price">${rupees(s.price_per_hour)} <small>/ hour · ${s.courts.length} court${s.courts.length > 1 ? "s" : ""}</small></div>
+      <span class="go">Book ${(SPORT_LABEL[s.sport] || s.sport).toLowerCase()} →</span></a>`).join("");
+  $("#m-price").textContent = rupees(cfg.membership_monthly);
+  $("#m-ref").textContent = rupees(cfg.referral_reward);
+  if (!cfg.online_pay) {   // no payment gateway connected yet: reserve online, pay at the arena
+    $("#lead-pay").textContent = "Reserve online and pay at the venue.";
+    $("#how2-h").textContent = "Reserve it";
+    $("#how2-p").innerHTML = `Reserve your slot online in seconds, then confirm it on a quick call within <span class="rh">3</span> hours.`;
+    $("#m-online").textContent = "Join at the reception in a minute";
+    $("#faq-reserve").innerHTML = `We hold your slot for <span class="rh">3</span> hours. Within that time, call us to confirm it or to pay an advance. Reservations that aren't confirmed are released automatically so others can book.`;
+  }
+  $$(".rh").forEach(e => e.textContent = cfg.reserve_hours);
+  $("#faq-cancel").textContent = cfg.refund_policy + " Refunds for online payments go back automatically.";
+  const pct = cfg.first_discount_pct;
+  if (pct && cfg.otp) {
+    $("#offer-tag").textContent = `★ ${pct}% off your first booking`; $("#offer-tag").classList.remove("hidden");
+    $("#band-h").textContent = `New here? Take ${pct}% off your first booking.`;
+  } else { $("#band-h").textContent = "Ready to play?"; $("#band-p").textContent = "Pick a court and a time. It takes less than a minute."; }
+  $("#v-address").textContent = cfg.arena.address;
+  if (cfg.arena.maps) { $("#v-maps").href = cfg.arena.maps; $("#v-maps").classList.remove("hidden"); }
+  if (cfg.arena.instagram) { $("#v-ig").href = cfg.arena.instagram; $("#v-ig").classList.remove("hidden"); }
+  $("#v-call").textContent = "Call " + cfg.arena.phone; $("#v-call").href = "tel:" + tel; $("#academy-call").href = "tel:" + tel;
+});
+</script>
+</body>
+</html>

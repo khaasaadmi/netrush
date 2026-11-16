@@ -1,166 +1,112 @@
-# Putting NetRush online for the client demo
+# Going live with NetRush on netrush.in
 
-This gets you a public link like `https://netrush.onrender.com` that works end to end with **mock payments**, a
-**demo phone** that shows every SMS/WhatsApp, and a **web door keypad**. It takes about 15 minutes and is free.
+The site is hosted on Render and deploys itself every time `main` is pushed to GitHub
+(`khaasaadmi/netrush`). This guide takes it from the demo to the real site.
 
-| Page | What the client sees |
-|---|---|
-| `/` | Booking site: pick sport/day/slot, enter name + mobile + email, pay, get the confirmation and door code |
-| `/pay` | The (mock) payment gateway the booking redirects to |
-| `/booking?...` | Confirmation page with reference, door-code status and self-cancel with automatic refund |
-| `/portal` | Member & academy login (mobile or member ID + OTP), membership card, renew online at ₹2,000/month |
-| `/admin` | Front desk: today, phone reservations without payment, members, analytics & revenue, health, door, messages |
-| `/demo` | **Demo phone**: every SMS & WhatsApp as the customer receives it, plus the demo logins |
-| `/door` | **Door keypad**: type the door code or scan a demo fingerprint |
+## What is live, and what waits for an account
 
-### Demo logins
-
-| Role | Login | Secret |
+| Feature | Works at launch | Needs |
 |---|---|---|
-| Admin / front desk | `9999999999` | the `ADMIN_PASSWORD` you set (`admin123` locally) |
-| Member (plan ends in 7 days) | `NR-0002` or `9000000001` | code shown on screen |
-| Academy player | `NR-0005` or `9000000004` | code shown on screen |
-| Any new customer | any 10-digit mobile | code shown on screen |
+| Landing page, live court availability | Yes | nothing |
+| Reserve a slot (held 3 hours), confirm by phone | Yes | nothing |
+| Staff panel: bookings, cash / UPI QR / card payments, day book, members, analytics, downloads | Yes | nothing |
+| Traffic tracking per agency link | Yes | nothing |
+| **Pay now** online, buy membership online, automatic refunds | Switched off | Razorpay keys (step 4) |
+| Member / guest login, 15% first-booking discount | Switched off | an SMS provider for OTP (step 5) |
+| Confirmation and reminder messages | Not sent | WhatsApp or DLT SMS (step 6) |
+| Door codes and fingerprint entry | Switched off | the lock (`LOCK_ENABLED=1`, see README) |
 
-Door fingerprints to try: `101` (active member, opens), `104` (academy, opens), `115` (expired, stays locked).
+Each "switched off" feature hides itself on the site until its keys are added. Nothing shows a demo label.
 
-> In demo mode the `/demo` page lists these logins, **including the admin password**, so anyone with the link
-> can try everything. That's intended for showing the client. Use a password you don't use elsewhere, and turn
-> `DEMO_MODE` off before real customers use it.
+## 1. Keep the data: add a disk (do this before taking real bookings)
 
----
+Render's free plan has no storage. **Every restart, deploy or sleep erases all bookings, members and payments.**
+That is fine for a demo and not for a real arena.
 
-## Option A: Render (free, recommended for the demo)
+1. Render dashboard → the `netrush` service → **Settings → Instance Type → Starter** ($7/month).
+2. **Disks → Add Disk**: name `netrush-data`, mount path `/var/data`, size 1 GB.
+3. **Environment → Add** `DB_PATH` = `/var/data/netrush.db`.
 
-### 1. Put `netrush/` in its own GitHub repository
+The Starter plan also never sleeps, so the reservation timer and reminders always run. Admin → Team & health
+shows a red "Data storage" row until this is done.
 
-The folder sits inside another project, so give it a repo of its own (private is fine). From the `netrush` folder:
+## 2. Set the live values
 
-```bash
-git init
-```
-```bash
-git add .
-```
-```bash
-git commit -m "NetRush demo"
-```
+Render dashboard → service → **Environment**. Set these, then **Save, rebuild and deploy**:
 
-Create an empty private repo on GitHub named `netrush`, then:
-
-```bash
-git remote add origin https://github.com/<your-username>/netrush.git
-```
-```bash
-git branch -M main
-```
-```bash
-git push -u origin main
-```
-
-(`data/` and `.env` are git-ignored, so no local data or secrets are uploaded.)
-
-### 2. Create the service
-
-1. Sign in at <https://dashboard.render.com> with GitHub.
-2. **New → Blueprint**, pick the `netrush` repo. Render reads `render.yaml`.
-3. It asks for the two values marked `sync: false`:
-   - `ADMIN_PASSWORD`: pick the admin password you'll give the client.
-   - `PUBLIC_URL`: leave empty for now.
-4. **Apply**. The first deploy takes 2–3 minutes. You get a URL like `https://netrush-xxxx.onrender.com`.
-
-### 3. Set the public URL
-
-Service → **Environment** → set `PUBLIC_URL` to that URL (with `https://`) → **Save, rebuild and deploy**.
-It is used in messages ("Renew online at …") and to mark login cookies secure.
-
-### 4. Keep it awake (important on the free plan)
-
-Free services sleep after 15 minutes without visitors, and the first visit then takes about 50 seconds. While
-asleep, the reminder and door-code scheduler pauses too. It catches up on wake, but it looks slow in a meeting.
-
-- Create a free monitor at <https://uptimerobot.com>: type **HTTP(s)**, URL `https://<your-url>/healthz`,
-  interval **5 minutes**. That keeps it awake.
-- Or use the **Starter** plan ($7/month), which never sleeps.
-
-### 5. What to know about data on the free plan
-
-The free plan has no persistent disk, so **each restart or deploy wipes the database and reloads fresh demo data**.
-That's handy for demos: every session starts clean. To keep data, switch to Starter and uncomment the `disk:`
-block in `render.yaml` (and set `DB_PATH=/var/data/netrush.db`).
-
-You can also reset the demo at any time: **Admin → Health → Reset demo data**.
-
----
-
-## Option B: Railway (Docker, keeps data)
-
-1. <https://railway.app> → **New project → Deploy from GitHub repo** → pick `netrush`. It builds the `Dockerfile`.
-2. **Variables**: `DEMO_MODE=1`, `ADMIN_PASSWORD=…`, `DEVICE_SECRET=<random>`, `PUBLIC_URL=https://…` (after step 3).
-3. **Settings → Networking → Generate domain**.
-4. **Add a volume** mounted at `/data` so the database survives restarts.
-
-Railway doesn't sleep. It costs roughly $5/month after the trial credit.
-
-## Option C: your own server (VPS)
-
-On any Ubuntu VPS (Hetzner, DigitalOcean, AWS Lightsail…) with a domain pointed at it:
-
-```bash
-sudo apt install -y python3 caddy
-```
-```bash
-git clone https://github.com/<your-username>/netrush.git /opt/netrush
-```
-
-`/etc/systemd/system/netrush.service`:
-
-```ini
-[Service]
-WorkingDirectory=/opt/netrush
-Environment=DEMO_MODE=1 TRUST_PROXY=1 PUBLIC_URL=https://book.netrush.in ADMIN_PASSWORD=change-me DEVICE_SECRET=long-random
-ExecStart=/usr/bin/python3 server.py
-Restart=always
-[Install]
-WantedBy=multi-user.target
-```
-
-`/etc/caddy/Caddyfile` (Caddy fetches the HTTPS certificate by itself):
-
-```
-book.netrush.in {
-    reverse_proxy localhost:8000
-}
-```
-
-```bash
-sudo systemctl enable --now netrush && sudo systemctl reload caddy
-```
-
----
-
-## Before the meeting (5-minute check)
-
-1. Open `https://<url>/healthz`. It should say `{"ok": true}` (this also wakes a sleeping free instance).
-2. **Admin → Health → Reset demo data** for a clean start.
-3. Open `/demo` in a second tab or on a tablet next to you: the demo phone updates live.
-4. Walk through: book a court → pay → the SMS and door code arrive on the demo phone → type it on `/door`
-   (it opens from 10 minutes before the slot; earlier it says "opens at 18:50") → log in to `/portal` as
-   `NR-0002` and renew → `/admin` for bookings, a phone reservation (no payment), analytics and health.
-
-On **Admin → Health**, the demo correctly shows SMS, WhatsApp, payments and lock as "demo mode". That is the
-honest to-do list for going live, below.
-
-## Going live (after the demo)
-
-| Step | What to set |
+| Key | Value |
 |---|---|
-| Turn off demo mode | `DEMO_MODE=0` (hides the demo phone, web keypad and on-screen codes) |
-| Real payments | Razorpay account → `PAYMENT_PROVIDER=razorpay`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`; webhook `payment.captured` → `<PUBLIC_URL>/api/payments/razorpay-webhook` with `RAZORPAY_WEBHOOK_SECRET` |
-| SMS | DLT registration + MSG91 (`SMS_PROVIDER=msg91`, one flow ID per message) or Twilio |
-| WhatsApp | WhatsApp Business Cloud API number + approved templates (`WHATSAPP_PROVIDER=meta`) |
-| Door lock | `LOCK_PROVIDER=ttlock` or `http_bridge` once the lock is chosen (see README) |
-| Keep data | Paid plan + persistent disk, and a daily backup of `netrush.db` |
-| Security | Strong `ADMIN_PASSWORD` and `DEVICE_SECRET` (Admin → Health turns green when both are set) |
+| `DEMO_MODE` | `0` |
+| `SEED_DEMO` | `0` (the site starts empty: no demo people or bookings) |
+| `PUBLIC_URL` | `https://netrush.in` |
+| `ADMIN_PHONE` | the owner's mobile number (this is the admin login) |
+| `ADMIN_PASSWORD` | a strong password of your own |
+| `RECEPTION_PHONE` | the reception desk's mobile number |
+| `RECEPTION_PASSWORD` | another password |
+| `ARENA_PHONE` | the number customers call to confirm a reservation, e.g. `+91 98xxx xxxxx` |
+| `ARENA_ADDRESS` | full address, shown on the landing page |
+| `ARENA_MAPS_URL` | Google Maps link (optional) |
+| `ARENA_INSTAGRAM` | Instagram profile link (optional) |
 
-Every value is listed in `.env.example`.
+Staff logins are created from these values the first time the site starts with an empty database. Later
+changes to staff are made in Admin → Team & health.
+
+## 3. Point netrush.in at the site
+
+1. Render dashboard → service → **Settings → Custom Domains → Add** `netrush.in`, then add `www.netrush.in`.
+2. Render shows the DNS records to create. At the company where the domain was bought, open DNS settings and add:
+   - for `www`: a **CNAME** record pointing to the `…onrender.com` address Render shows;
+   - for the bare `netrush.in`: an **ALIAS / ANAME** record to the same address, or the **A** record IP Render shows.
+3. Back in Render, press **Verify**. The HTTPS certificate is issued automatically, usually within minutes.
+   DNS changes can take up to a few hours to reach everyone.
+
+## 4. Online payments (Razorpay)
+
+1. Razorpay dashboard → **Account & Settings → API Keys → Generate key**.
+2. In Render → Environment set `PAYMENT_PROVIDER=razorpay`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`.
+3. Razorpay → **Webhooks → Add**: URL `https://netrush.in/api/payments/razorpay-webhook`, event
+   `payment.captured`, and a secret of your choice. Put that secret in `RAZORPAY_WEBHOOK_SECRET`.
+
+"Pay now", online membership purchase and automatic refunds switch on as soon as the keys are in.
+
+**Test keys on the live site:** with `rzp_test_…` keys, the payment page accepts test cards and takes no money,
+but the booking is still confirmed as paid. Use test keys only to try the flow, on a day you are not
+advertising. Admin → Team & health shows a red warning while test keys are in use. Switch to the
+`rzp_live_…` pair (available once Razorpay has approved the account's KYC) before promoting "Pay now".
+
+## 5. OTP for login and the first-booking discount
+
+OTP is used in two places only: member/guest login, and proving a number for the 15% first-booking discount.
+Ordinary booking needs no OTP.
+
+The quickest provider for India is 2Factor.in (no DLT paperwork for OTP): create an account, copy the API key,
+and set `SMS_PROVIDER=2factor` and `TWOFACTOR_API_KEY`. This connection is written from 2Factor's
+documentation and has not yet been run against a real account, so send yourself one login code before
+announcing it.
+
+## 6. Confirmation and reminder messages
+
+Booking confirmations, reservation deadlines, membership reminders and refund notices need either a WhatsApp
+Business (Cloud API) number with approved templates, or DLT-registered SMS templates through MSG91. Both
+take a few days of approvals. The template names and settings are in `.env.example`. Until then customers
+see their confirmation on screen, and staff see every booking in the panel.
+
+## 7. Marketing links
+
+Admin → Analytics → **Tracking link for an agency or campaign** builds a link per partner, for example
+`https://netrush.in/?utm_source=brightads&utm_campaign=launch`. Give each agency its own. Analytics then shows
+visitors, bookings and revenue per source, and the same table downloads as a spreadsheet.
+
+## Launch-day checklist
+
+1. `https://netrush.in/healthz` shows `{"ok": true}`.
+2. Log in at `/admin` as the admin. **Team & health** should show no red rows.
+3. Make a test reservation on your own phone, confirm it from the receptionist login, then cancel it.
+4. Record a ₹1 "other" payment under Payments, and check it appears in the day book.
+5. Open an agency link in a private window, and check the visit appears under Analytics.
+
+## A private demo copy
+
+To keep a demo for showing people, create a second Render service from the same repository with
+`DEMO_MODE=1`. It loads demo data, shows login codes on screen, uses a mock payment page, and adds a
+`/demo` page that displays every message. Never set `DEMO_MODE=1` on the real site.

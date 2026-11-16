@@ -48,10 +48,12 @@ def status(user_id):
                       "WHERE user_id=? AND granted=1 AND method='fingerprint' AND at>=?", user_id, since)["n"]
     from . import bookings as bk
     bookings = db.all_("SELECT b.*, c.name AS court FROM bookings b "
-                       "JOIN courts c ON c.id=b.court_id WHERE b.phone=? AND b.status='confirmed' AND b.end>=? "
+                       "JOIN courts c ON c.id=b.court_id WHERE b.phone=? AND b.end>=? AND (b.status='confirmed' "
+                       "OR (b.status='reserved' AND b.hold_until > '" + clock.fmt(clock.now()) + "')) "
                        "ORDER BY b.start LIMIT 10", u["phone"], clock.fmt(clock.now()))
     for b in bookings:
         b["cancel"] = bk.refund_quote(b, "customer")
+        b["balance"] = bk.balance(b)
     entries = db.all_("SELECT at, method, granted FROM access_events WHERE user_id=? ORDER BY at DESC LIMIT 10",
                       user_id)
     until = access.entitlement(user_id)
@@ -65,6 +67,7 @@ def status(user_id):
         "fingerprint": {"enrolled": bool(u["lock_user_id"]), "active": bool(until), "until": until},
         "upcoming_bookings": bookings,
         "recent_entries": entries,
+        "referral": referral_summary(user_id),
         "membership_offer": {"plan": seed.ONLINE_PLAN, "monthly": config.ONLINE_MEMBERSHIP_MONTHLY,
                              "months": config.ONLINE_MEMBERSHIP_MONTH_OPTIONS,
                              "starts": _next_start(user_id).isoformat()},
@@ -121,8 +124,71 @@ def _insert_membership(c, user_id, plan, months):
                      (user_id, plan["id"], start.isoformat(), end.isoformat(), clock.fmt(clock.now()))).lastrowid
 
 
-def add_membership(user_id, plan_id, months=1, staff=None):
-    """Sold at the desk (records the cash/UPI payment) — new or renewal."""
+# ---------------------------------------------------------------- referrals
+
+def referral_code(user_id):
+    from .auth import member_id
+    return member_id(user_id)
+
+
+def set_referrer(user_id, code):
+    """Record who referred this person. Only before their first membership, only once, never themselves,
+    and the referrer must be (or have been) a member."""
+    import re
+    m = re.fullmatch(r"\s*nr-?\s*0*(\d+)\s*", code or "", re.I)
+    if not m:
+        raise MemberError("That referral code doesn't look right. It looks like NR-0012.")
+    ref_id = int(m.group(1))
+    u = db.one("SELECT id, referred_by FROM users WHERE id=?", user_id)
+    if ref_id == user_id:
+        raise MemberError("You can't refer yourself")
+    if u["referred_by"]:
+        raise MemberError("A referral code is already saved on this account")
+    if db.one("SELECT 1 AS x FROM memberships WHERE user_id=?", user_id):
+        raise MemberError("Referral codes are for new members joining for the first time")
+    r = db.one("SELECT id, name FROM users WHERE id=? AND role IS NULL", ref_id)
+    if not r or not db.one("SELECT 1 AS x FROM memberships WHERE user_id=?", ref_id):
+        raise MemberError("No member found with that referral code")
+    db.conn().execute("UPDATE users SET referred_by=? WHERE id=?", (ref_id, user_id))
+    return r["name"]
+
+
+def _reward_referrer(user_id):
+    """Called after a membership is created. Credits the referrer once, on the friend's first membership."""
+    u = db.one("SELECT id, name, referred_by, referral_rewarded FROM users WHERE id=?", user_id)
+    if not u["referred_by"] or u["referral_rewarded"] or not config.REFERRAL_REWARD:
+        return
+    cur = db.conn().execute("UPDATE users SET referral_rewarded=1 WHERE id=? AND referral_rewarded=0", (user_id,))
+    if cur.rowcount != 1:
+        return
+    db.conn().execute("UPDATE users SET credit=credit+? WHERE id=?", (config.REFERRAL_REWARD, u["referred_by"]))
+    r = db.one("SELECT name, phone, credit FROM users WHERE id=?", u["referred_by"])
+    notify.send("referral_reward", r["phone"], {
+        "name": r["name"].split()[0], "friend": u["name"].split()[0], "amount": f"Rs {config.REFERRAL_REWARD}",
+        "credit": f"Rs {r['credit']}"}, dedupe_key=f"referral:{user_id}")
+
+
+def _use_credit(user_id, amount):
+    if amount:
+        db.conn().execute("UPDATE users SET credit=MAX(0, credit-?) WHERE id=?", (amount, user_id))
+
+
+def referral_summary(user_id):
+    u = db.one("SELECT credit, referred_by FROM users WHERE id=?", user_id)
+    friends = db.all_("SELECT name, referral_rewarded FROM users WHERE referred_by=? ORDER BY id DESC", user_id)
+    by = u["referred_by"] and db.one("SELECT name FROM users WHERE id=?", u["referred_by"])
+    is_member = bool(db.one("SELECT 1 AS x FROM memberships WHERE user_id=?", user_id))
+    return {"code": referral_code(user_id), "reward": config.REFERRAL_REWARD, "credit": u["credit"],
+            "link": f"{config.PUBLIC_URL}/portal?ref={referral_code(user_id)}",
+            "friends": [{"name": f["name"].split()[0], "joined": bool(f["referral_rewarded"])} for f in friends],
+            "earned": sum(1 for f in friends if f["referral_rewarded"]) * config.REFERRAL_REWARD,
+            "referred_by": by and by["name"], "can_share": is_member,
+            "can_enter_code": not is_member and not u["referred_by"]}
+
+
+def add_membership(user_id, plan_id, months=1, staff=None, method="cash"):
+    """Sold at the desk (records the cash / UPI / card payment) — new or renewal.
+    Any referral credit the member has is taken off automatically."""
     plan = db.one("SELECT * FROM plans WHERE id=?", plan_id)
     if not plan:
         raise MemberError("Unknown plan")
@@ -131,11 +197,16 @@ def add_membership(user_id, plan_id, months=1, staff=None):
         raise MemberError("1 to 12 months")
     with db.tx() as c:
         mid = _insert_membership(c, user_id, plan, months)
-    u = db.one("SELECT phone FROM users WHERE id=?", user_id)
-    payments.record_desk("membership", mid, plan["price"] * months, u["phone"], user_id, staff or "desk",
-                         {"months": months})
+    u = db.one("SELECT phone, credit FROM users WHERE id=?", user_id)
+    total = plan["price"] * months
+    credit_used = min(u["credit"], total)
+    payments.record_desk("membership", mid, total - credit_used, u["phone"], user_id, staff or "desk",
+                         {"months": months, "credit_used": credit_used}, method=method)
+    _use_credit(user_id, credit_used)
+    _reward_referrer(user_id)
     access.sync_member_access()
-    return db.one("SELECT * FROM memberships WHERE id=?", mid)
+    return {**db.one("SELECT * FROM memberships WHERE id=?", mid), "credit_used": credit_used,
+            "paid": total - credit_used}
 
 
 def order_membership(user_id, months):
@@ -143,34 +214,48 @@ def order_membership(user_id, months):
     months = int(months)
     if months not in config.ONLINE_MEMBERSHIP_MONTH_OPTIONS:
         raise MemberError("Pick one of the offered durations")
-    u = db.one("SELECT id, phone FROM users WHERE id=?", user_id)
-    return payments.create_order("membership", config.ONLINE_MEMBERSHIP_MONTHLY * months, f"MEM-{user_id}",
-                                 u["phone"], user_id, meta={"months": months})
+    u = db.one("SELECT id, phone, credit FROM users WHERE id=?", user_id)
+    total = config.ONLINE_MEMBERSHIP_MONTHLY * months
+    credit_used = min(u["credit"], total)
+    meta = {"months": months, "credit_used": credit_used}
+    if total - credit_used == 0:  # fully covered by referral credit: nothing to send to the gateway
+        p = payments.record_desk("membership", None, 0, u["phone"], user_id, "credit", meta, method="credit")
+        complete_membership(p)
+        return {"redirect": "/portal?paid=1", "amount": 0, "credit_used": credit_used}
+    if not config.ONLINE_PAY:
+        raise MemberError("Online payment isn't available yet. Please pay at the reception or call "
+                          f"{config.ARENA_PHONE}.")
+    out = payments.create_order("membership", total - credit_used, f"MEM-{user_id}", u["phone"], user_id, meta=meta)
+    return {**out, "credit_used": credit_used}
 
 
 def complete_membership(p):
     """Payment for a membership has been verified (checkout or webhook): create it, exactly once."""
     plan = db.one("SELECT * FROM plans WHERE id=?", seed.online_plan_id())
-    months = json.loads(p["meta"] or "{}").get("months", 1)
+    meta = json.loads(p["meta"] or "{}")
+    months = meta.get("months", 1)
     with db.tx() as c:
         row = c.execute("SELECT ref_id FROM payments WHERE id=?", (p["id"],)).fetchone()
         if row["ref_id"]:
             return db.one("SELECT * FROM memberships WHERE id=?", row["ref_id"])  # already fulfilled
         mid = _insert_membership(c, p["user_id"], plan, months)
         c.execute("UPDATE payments SET ref_id=? WHERE id=?", (mid, p["id"]))
+    _use_credit(p["user_id"], meta.get("credit_used", 0))
+    _reward_referrer(p["user_id"])
     access.sync_member_access()
     m = db.one("SELECT * FROM memberships WHERE id=?", mid)
     u = db.one("SELECT name, phone, lock_user_id FROM users WHERE id=?", p["user_id"])
     notify.send("membership_confirmed", u["phone"], {
         "name": u["name"].split()[0], "plan": plan["name"],
         "end_date": Date.fromisoformat(m["end_date"]).strftime("%d %b %Y"),
-        "access": "Your fingerprint entry is active." if u["lock_user_id"] else
-        "Visit the front desk once to register your fingerprint for door entry.",
+        "access": ("Your fingerprint entry is active." if u["lock_user_id"] else
+                   "Visit the front desk once to register your fingerprint for door entry.")
+        if config.LOCK_ENABLED else "Show your member ID at the reception when you visit.",
     }, dedupe_key=f"memok:{mid}")
     return m
 
 
-def enroll(user_id, batch_id, level=None, months=1, staff=None):
+def enroll(user_id, batch_id, level=None, months=1, staff=None, method="cash"):
     b = db.one("SELECT id, monthly_fee FROM academy_batches WHERE id=?", batch_id)
     if not b:
         raise MemberError("Unknown batch")
@@ -178,26 +263,26 @@ def enroll(user_id, batch_id, level=None, months=1, staff=None):
     eid = db.conn().execute("INSERT INTO academy_enrollments(user_id,batch_id,level,fee_paid_until,created_at) "
                             "VALUES(?,?,?,?,?)", (user_id, batch_id, level, until.isoformat(),
                                                   clock.fmt(clock.now()))).lastrowid
-    _record_fee(eid, int(months), staff)
+    _record_fee(eid, int(months), staff, method)
     access.sync_member_access()
     return db.one("SELECT * FROM academy_enrollments WHERE id=?", eid)
 
 
-def _record_fee(enrollment_id, months, staff):
+def _record_fee(enrollment_id, months, staff, method="cash"):
     e = db.one("SELECT e.user_id, u.phone, b.monthly_fee FROM academy_enrollments e JOIN users u ON u.id=e.user_id "
                "JOIN academy_batches b ON b.id=e.batch_id WHERE e.id=?", enrollment_id)
     payments.record_desk("academy", enrollment_id, e["monthly_fee"] * months, e["phone"], e["user_id"],
-                         staff or "desk", {"months": months})
+                         staff or "desk", {"months": months}, method=method)
 
 
-def pay_academy_fee(enrollment_id, months=1, staff=None):
+def pay_academy_fee(enrollment_id, months=1, staff=None, method="cash"):
     e = db.one("SELECT * FROM academy_enrollments WHERE id=?", enrollment_id)
     if not e:
         raise MemberError("Unknown enrollment")
     base = max(Date.fromisoformat(e["fee_paid_until"]), clock.today() - timedelta(days=1))
     until = base + timedelta(days=30 * int(months))
     db.conn().execute("UPDATE academy_enrollments SET fee_paid_until=? WHERE id=?", (until.isoformat(), enrollment_id))
-    _record_fee(enrollment_id, int(months), staff)
+    _record_fee(enrollment_id, int(months), staff, method)
     access.sync_member_access()
     return until.isoformat()
 

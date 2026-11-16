@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book a Court · NetRush</title>
+<meta name="description" content="Book badminton, padel and pickleball courts at NetRush in under a minute.">
+<link rel="icon" href="/brand/favicon.png">
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
+<link rel="stylesheet" href="/app.css">
+<style>
+  .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+  @media (max-width: 480px) { .opts { grid-template-columns: 1fr; } }
+  .opt { text-align: left; display: block; background: var(--surface); color: var(--ink); border: 1.5px solid var(--line);
+    border-radius: 16px; padding: 14px; font-weight: 500; }
+  .opt b { display: block; font-weight: 800; font-size: .98rem; }
+  .opt span { font-size: .8rem; color: var(--ink-2); }
+  .opt[aria-pressed="true"] { border-color: var(--green); box-shadow: 0 0 0 4px color-mix(in srgb, var(--sage) 45%, transparent); }
+  .opt:disabled { opacity: .5; }
+  .offer { border-radius: 16px; padding: 14px; margin-top: 16px; background: color-mix(in srgb, var(--lime) 26%, var(--surface));
+    border: 1px dashed color-mix(in srgb, var(--ink) 28%, transparent); font-size: .9rem; }
+  .offer.done { border-style: solid; }
+  .offer b { font-weight: 800; }
+  .note { background: var(--surface-2); border-radius: 12px; padding: 12px 14px; font-size: .84rem; color: var(--ink-2); margin-top: 12px; }
+  .strike { text-decoration: line-through; color: var(--ink-3); font-weight: 600; margin-right: 6px; }
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="logo" href="/"><i></i><span id="facility">NetRush</span></a>
+  <nav><a href="#" id="find-link" class="keep">My booking</a><a href="/portal" class="cta">Login</a></nav>
+</div></header>
+
+<main class="wrap stack">
+  <div class="page-head" style="margin-bottom:0">
+    <div><div class="eyebrow">Step 1 of 3</div><h1 style="margin-top:4px">Pick your court and time</h1></div>
+    <span class="spacer"></span>
+    <span class="pill lime plain hidden" id="offer-pill"></span>
+  </div>
+
+  <section class="sports" id="sports" aria-label="Sport"></section>
+  <section class="dates" id="dates" aria-label="Date"></section>
+  <section class="card">
+    <div class="section-head">
+      <div><div class="eyebrow" id="grid-eyebrow">Available slots</div><h2 id="grid-title" style="margin-top:4px">Available slots</h2></div>
+      <span class="spacer"></span>
+      <div class="legend" id="legend"><span><i></i>Free</span><span><i class="sel"></i>Your pick</span><span><i class="off"></i>Taken</span></div>
+    </div>
+    <div class="slots" id="grid"></div>
+    <p class="small faint" style="margin:14px 0 0">Tap a slot, then the next one to extend (up to 4 hours).</p>
+  </section>
+  <p class="small muted" id="policy"></p>
+</main>
+
+<div class="bar hidden" id="bar"><div class="wrap">
+  <div class="sum"><b id="sum-what"></b><span id="sum-when"></span></div>
+  <span class="spacer"></span><span class="price num" id="sum-price"></span>
+  <button id="continue">Continue →</button>
+</div></div>
+
+<!-- details -->
+<div class="sheet-bg hidden" id="sheet"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-h">
+  <div class="eyebrow">Step 2 of 3</div>
+  <h2 id="sheet-h" style="margin-top:4px">Your details</h2>
+  <div class="summary" id="sheet-sum"></div>
+  <div class="field"><label for="name">Full name *</label><input id="name" autocomplete="name" required></div>
+  <div class="field"><label for="phone">Mobile number *</label>
+    <input id="phone" inputmode="tel" autocomplete="tel" placeholder="10-digit mobile" required></div>
+  <div class="field"><label for="email">Email (optional, for your receipt)</label>
+    <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com"></div>
+
+  <div class="field"><label for="heard">How did you hear about us? (optional)</label>
+    <select id="heard"><option value="">Choose…</option></select></div>
+
+  <div class="offer hidden" id="offer">
+    <div id="offer-ask"><b>First booking? Get <span class="pct"></span>% off.</b> Verify your mobile number with a one-time code.
+      <div class="row" style="margin-top:10px"><button class="sm" id="otp-send">Send code</button></div></div>
+    <div id="offer-code" class="hidden"><b>Enter the 6-digit code</b> we sent to your phone.
+      <div class="row" style="margin-top:10px;flex-wrap:nowrap"><input id="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code"
+        style="width:140px;letter-spacing:.25em;font-weight:800"><button class="sm" id="otp-verify">Verify</button></div>
+      <div class="tiny" id="otp-demo" style="margin-top:6px"></div></div>
+    <div id="offer-done" class="hidden"></div>
+  </div>
+
+  <div class="opts" role="group" aria-label="How to pay">
+    <button class="opt" data-mode="pay" aria-pressed="true"><b>Pay now</b><span>Confirmed instantly. UPI, card or netbanking.</span></button>
+    <button class="opt" data-mode="reserve" aria-pressed="false"><b>Reserve, pay at venue</b><span id="reserve-sub">Held for 3 hours until you confirm.</span></button>
+  </div>
+  <div class="note hidden" id="reserve-note"></div>
+
+  <div class="row" style="margin-top:16px"><button class="ghost" data-close>Back</button><span class="spacer"></span>
+    <button id="go" class="lime"></button></div>
+</div></div>
+
+<!-- lookup / cancel -->
+<div class="sheet-bg hidden" id="find"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="find-h">
+  <h2 id="find-h">Find my booking</h2>
+  <p class="small muted">Use the reference from your booking confirmation.</p>
+  <div class="field"><label for="f-ref">Booking reference</label><input id="f-ref" placeholder="e.g. 3FA91C"></div>
+  <div class="field"><label for="f-phone">Mobile number</label><input id="f-phone" inputmode="tel"></div>
+  <div id="f-out" class="small" style="margin-top:12px"></div>
+  <div class="row" style="margin-top:14px"><button class="ghost" data-close>Close</button><span class="spacer"></span>
+    <button id="f-go">Look up</button></div>
+</div></div>
+
+<script src="/common.js"></script>
+<script>
+const S = { cfg: null, sport: null, date: null, grid: null, sel: [], mode: "pay", offer: { verified: false, pct: 0 } };
+const digits = v => v.replace(/\D/g, "").slice(-10);
+
+async function init() {
+  S.cfg = await api("/api/config");
+  demoBar(S.cfg); rememberCampaign();
+  document.title = "Book a Court · " + S.cfg.facility;
+  $("#facility").textContent = S.cfg.facility;
+  $("#heard").innerHTML += S.cfg.heard_options.map(o => `<option>${esc(o)}</option>`).join("");
+  $("#policy").textContent = "Cancellation: " + S.cfg.refund_policy + " Refunds go back automatically to how you paid.";
+  $("#sports").innerHTML = S.cfg.sports.map(s => `
+    <button class="sport" style="--c:var(--${s.sport})" data-sport="${s.sport}" aria-pressed="false">
+      <span class="ico">${SPORT_ICON[s.sport] || ""}</span>
+      <span><b>${SPORT_LABEL[s.sport] || s.sport}</b><span>${s.courts.length} court${s.courts.length > 1 ? "s" : ""}</span></span>
+      <span class="price"><strong>${rupees(s.price_per_hour)}</strong><span>per hour</span></span>
+    </button>`).join("");
+  $$("#sports .sport").forEach(b => b.onclick = () => pickSport(b.dataset.sport));
+  const [y, m, d] = S.cfg.today.split("-").map(Number);
+  const days = [];
+  for (let i = 0; i <= S.cfg.horizon_days; i++) {
+    const dt = new Date(y, m - 1, d + i);
+    const iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    days.push(`<button class="date" data-date="${iso}" aria-pressed="false">
+      <small>${i === 0 ? "Today" : DAYS[dt.getDay()]}</small><b>${dt.getDate()}</b><small>${MONTHS[dt.getMonth()]}</small></button>`);
+  }
+  $("#dates").innerHTML = days.join("");
+  $$("#dates .date").forEach(b => b.onclick = () => pickDate(b.dataset.date));
+  S.date = S.cfg.today;
+  const q = new URLSearchParams(location.search);
+  if (q.get("cancelled")) toast("Payment cancelled. The slot has been released.");
+  await loadOffer();
+  const want = q.get("sport");
+  pickSport(S.cfg.sports.some(s => s.sport === want) ? want : S.cfg.sports[0].sport);
+}
+
+async function loadOffer() {
+  try { S.offer = await api("/api/offer"); } catch (e) { S.offer = { verified: false, pct: 0 }; }
+  const pct = S.cfg.first_discount_pct, pill = $("#offer-pill");
+  if (S.offer.pct) { pill.textContent = `${S.offer.pct}% first-booking discount unlocked`; pill.classList.remove("hidden"); }
+  else if (!S.offer.verified && pct && S.cfg.otp) { pill.textContent = `${pct}% off your first booking`; pill.classList.remove("hidden"); }
+  else pill.classList.add("hidden");
+  if (S.offer.verified) {
+    if (!$("#name").value) $("#name").value = S.offer.name || "";
+    if (!$("#phone").value) $("#phone").value = S.offer.phone || "";
+    if (!$("#email").value) $("#email").value = S.offer.email || "";
+  }
+}
+
+function pickSport(sport) {
+  S.sport = sport;
+  $$("#sports .sport").forEach(b => b.setAttribute("aria-pressed", b.dataset.sport === sport));
+  pickDate(S.date);
+}
+
+async function pickDate(date) {
+  S.date = date; S.sel = [];
+  $$("#dates .date").forEach(b => b.setAttribute("aria-pressed", b.dataset.date === date));
+  S.grid = await api(`/api/availability?sport=${S.sport}&date=${date}`);
+  renderGrid(); renderBar();
+}
+
+function renderGrid() {
+  const g = S.grid, n = g.courts.length;
+  $("#grid-title").textContent = niceDate(g.date);
+  $("#grid-eyebrow").textContent = SPORT_LABEL[g.sport] + " courts";
+  $("#legend").style.setProperty("--c", `var(--${g.sport})`);
+  const el = $("#grid");
+  el.style.gridTemplateColumns = `64px repeat(${n}, 1fr)`;
+  el.style.setProperty("--c", `var(--${g.sport})`);
+  let h = `<div></div>` + g.courts.map(c => `<div class="head">${n > 1 ? esc(c.name.replace(/^\w+ /, "")) : esc(c.name)}</div>`).join("");
+  let any = false;
+  for (const r of g.slots) {
+    h += `<div class="time">${r.start}</div>`;
+    for (const c of g.courts) {
+      const st = r.cells[c.id], kind = st.split(":")[0];
+      const sel = S.sel.some(s => s.court === c.id && s.start === r.start);
+      const label = kind === "free" ? (sel ? "Selected" : rupees(g.price)) : kind === "booked" ? "Booked"
+        : kind === "blocked" ? esc(st.split(":")[1]) : "";
+      if (kind === "free") any = true;
+      h += `<button class="cell ${kind}${sel ? " sel" : ""}" ${kind !== "free" ? "disabled" : ""}
+        data-court="${c.id}" data-start="${r.start}" aria-label="${esc(c.name)} ${r.start} ${kind}">${label}</button>`;
+    }
+  }
+  el.innerHTML = h + (any ? "" : `<p class="muted" style="grid-column:1/-1">No free slots on this day. Try another date.</p>`);
+  $$(".cell.free", el).forEach(b => b.onclick = () => toggle(b.dataset.court, b.dataset.start));
+}
+
+function toggle(court, start) {
+  const idx = S.grid.slots.findIndex(r => r.start === start);
+  const has = S.sel.findIndex(s => s.court === court && s.start === start);
+  if (has >= 0) {
+    S.sel = has === 0 ? [] : S.sel.slice(0, has);
+  } else if (S.sel.length && S.sel[0].court === court) {
+    const last = S.sel[S.sel.length - 1].idx, first = S.sel[0].idx;
+    if (idx === last + 1 && S.sel.length < 4) S.sel.push({ court, start, idx });
+    else if (idx === first - 1 && S.sel.length < 4) S.sel.unshift({ court, start, idx });
+    else S.sel = [{ court, start, idx }];
+  } else S.sel = [{ court, start, idx }];
+  renderGrid(); renderBar();
+}
+
+function selection() {
+  if (!S.sel.length) return null;
+  const court = S.grid.courts.find(c => c.id === S.sel[0].court);
+  const start = S.sel[0].start, end = S.grid.slots[S.sel[S.sel.length - 1].idx].end;
+  return { court, start, end, slots: S.sel.length, price: S.grid.price * S.sel.length };
+}
+// The discount only applies to the verified number, so it follows what's typed in the phone box.
+const pctNow = () => (S.offer.pct && digits($("#phone").value) === S.offer.phone) ? S.offer.pct : 0;
+const priced = s => { const off = Math.floor(s.price * pctNow() / 100); return { off, due: s.price - off }; };
+
+function renderBar() {
+  const s = selection();
+  $("#bar").classList.toggle("hidden", !s);
+  if (!s) return;
+  $("#sum-what").textContent = s.court.name;
+  $("#sum-when").textContent = `${niceDate(S.date)} · ${s.start}–${s.end}`;
+  $("#sum-price").textContent = rupees(s.price);
+}
+
+function openSheet(id) { $("#" + id).classList.remove("hidden"); }
+$$("[data-close]").forEach(b => b.onclick = () => b.closest(".sheet-bg").classList.add("hidden"));
+
+// Minutes from now (facility clock ≈ device clock in India) until the selected slot starts.
+function minutesToStart(s) {
+  const [y, m, d] = S.date.split("-").map(Number), [hh, mm] = s.start.split(":").map(Number);
+  return (new Date(y, m - 1, d, hh, mm) - Date.now()) / 60000;
+}
+
+function renderSheet() {
+  const s = selection(); if (!s) return;
+  const { off, due } = priced(s), pct = pctNow();
+  $("#sheet-sum").style.setProperty("--c", `var(--${S.sport})`);
+  $("#sheet-sum").innerHTML = `<span class="ico">${SPORT_ICON[S.sport]}</span><div><b>${esc(s.court.name)}</b>
+    <div class="small muted">${niceDate(S.date)} · ${s.start}–${s.end} · ${s.slots} hr</div></div>
+    <span class="spacer"></span><b class="num">${off ? `<span class="strike">${rupees(s.price)}</span>` : ""}${rupees(due)}</b>`;
+
+  // first-booking offer
+  const box = $("#offer"), offerPct = S.cfg.first_discount_pct;
+  $$(".pct", box).forEach(e => e.textContent = offerPct);
+  const sameNumber = S.offer.verified && digits($("#phone").value) === S.offer.phone;
+  box.classList.toggle("hidden", !offerPct || (!S.cfg.otp && !S.offer.verified) || (S.offer.verified && !sameNumber && !S.cfg.otp));
+  box.classList.toggle("done", !!sameNumber);
+  if (sameNumber) {
+    $("#offer-ask").classList.add("hidden"); $("#offer-code").classList.add("hidden"); $("#offer-done").classList.remove("hidden");
+    $("#offer-done").innerHTML = pct ? `<b>✓ Number verified. ${pct}% first-booking discount applied:</b> you save ${rupees(off)}.`
+      : `<b>✓ Number verified.</b> You've booked with us before, so the first-booking discount doesn't apply.`;
+  } else if ($("#offer-code").classList.contains("hidden")) {
+    $("#offer-ask").classList.remove("hidden"); $("#offer-done").classList.add("hidden");
+  }
+
+  // pay now / reserve
+  const canReserve = minutesToStart(s) >= S.cfg.reserve_min_lead_min, canPay = S.cfg.online_pay;
+  if (!canPay) S.mode = "reserve";
+  else if (!canReserve && S.mode === "reserve") S.mode = "pay";
+  $(".opt[data-mode=pay]").classList.toggle("hidden", !canPay);
+  $(".opts").style.gridTemplateColumns = canPay ? "" : "1fr";
+  $$(".opt").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === S.mode));
+  $(".opt[data-mode=reserve]").disabled = !canReserve;
+  $("#reserve-sub").textContent = canReserve ? `Held for ${S.cfg.reserve_hours} hours until you confirm.` : "Not available: this slot starts within the hour.";
+  const note = $("#reserve-note");
+  note.classList.toggle("hidden", S.mode !== "reserve");
+  note.innerHTML = `<b style="color:var(--ink)">Please note:</b> a reserved slot is held for <b>${S.cfg.reserve_hours} hours</b>. To keep it, confirm within that time:
+    pay online from your booking link, or call <a href="tel:${esc(S.cfg.arena.phone.replace(/\s/g, ""))}"><b>${esc(S.cfg.arena.phone)}</b></a> to pay an advance.
+    Reservations that aren't confirmed are released automatically.`;
+  $("#go").textContent = S.mode === "pay" ? `Pay ${rupees(due)} →` : `Reserve this slot`;
+  const stuck = !canPay && !canReserve;   // too close to start to reserve, and no online payment
+  $("#go").disabled = stuck;
+  if (stuck) { note.classList.remove("hidden"); note.innerHTML = `This slot starts within the hour. Please call <a href="tel:${esc(S.cfg.arena.phone.replace(/\s/g, ""))}"><b>${esc(S.cfg.arena.phone)}</b></a> to book it.`; }
+  else if (!canPay) note.innerHTML = note.innerHTML.replace("pay online from your booking link, or call", "call");
+}
+
+$("#continue").onclick = () => { openSheet("sheet"); renderSheet(); if (!$("#name").value) $("#name").focus(); };
+$("#phone").oninput = renderSheet;
+$$(".opt").forEach(b => b.onclick = () => { S.mode = b.dataset.mode; renderSheet(); });
+
+$("#otp-send").onclick = async () => {
+  if (!$("#name").value.trim()) { toast("Enter your name first", true); return $("#name").focus(); }
+  if (digits($("#phone").value).length !== 10) { toast("Enter your 10-digit mobile number", true); return $("#phone").focus(); }
+  $("#otp-send").disabled = true;
+  try {
+    const r = await api("/api/auth/request-code", { phone: $("#phone").value });
+    $("#offer-ask").classList.add("hidden"); $("#offer-code").classList.remove("hidden"); $("#otp").focus();
+    if (r.demo_code) { $("#otp").value = r.demo_code; $("#otp-demo").textContent = `Demo mode: no SMS is sent. Your code is ${r.demo_code}.`; }
+  } catch (e) { toast(e.message, true); } finally { $("#otp-send").disabled = false; }
+};
+$("#otp-verify").onclick = async () => {
+  try {
+    await api("/api/auth/verify", { phone: $("#phone").value, code: $("#otp").value, name: $("#name").value });
+    $("#offer-code").classList.add("hidden");
+    await loadOffer(); renderSheet();
+    toast(pctNow() ? `Verified. ${pctNow()}% off applied.` : "Number verified.");
+  } catch (e) { toast(e.message, true); }
+};
+
+$("#go").onclick = async () => {
+  const s = selection();
+  if (!$("#name").value.trim()) { toast("Please enter your name", true); return $("#name").focus(); }
+  if (digits($("#phone").value).length !== 10) { toast("Please enter your 10-digit mobile number", true); return $("#phone").focus(); }
+  $("#go").disabled = true;
+  try {
+    const r = await api("/api/bookings", { court_id: s.court.id, date: S.date, start: s.start, slots: s.slots, mode: S.mode,
+      name: $("#name").value, phone: $("#phone").value, email: $("#email").value, src: campaign(), heard: $("#heard").value });
+    location.href = r.redirect;       // pay now → payment page → confirmation;  reserve → booking page
+  } catch (e) { toast(e.message, true); if (/booked|reserved \(/.test(e.message)) pickDate(S.date); $("#go").disabled = false; }
+};
+
+// ---- find my booking → opens its page (pay, cancel, status live there)
+$("#find-link").onclick = e => { e.preventDefault(); $("#f-out").innerHTML = ""; openSheet("find"); };
+$("#f-go").onclick = async () => {
+  try {
+    const r = await api(`/api/bookings/lookup?ref=${encodeURIComponent($("#f-ref").value.trim())}&phone=${encodeURIComponent($("#f-phone").value)}`);
+    const b = r.booking, pill = { confirmed: "ok", pending: "warn", reserved: "warn" }[b.status] || "bad";
+    $("#f-out").innerHTML = `<div class="card flat"><span class="pill ${pill}">${esc(b.status)}</span>
+      <p style="margin:8px 0 4px"><b>${esc(b.court_name)}</b> · ${niceDate(b.start)} · ${hhmm(b.start)}–${hhmm(b.end)}</p>
+      <p class="muted" style="margin:0">${rupees(b.amount)} · ${b.pay_status === "paid" ? "paid" : "to pay"}${b.refund_amount ? ` · refund ${rupees(b.refund_amount)}` : ""}</p>
+      <p class="small muted" style="margin:10px 0 0">To pay or cancel, log in with this mobile number.</p>
+      <a class="btn sm" style="margin-top:8px" href="/portal">Log in to manage</a></div>`;
+  } catch (e) { $("#f-out").innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`; }
+};
+
+init().catch(e => toast(e.message, true));
+</script>
+</body>
+</html>

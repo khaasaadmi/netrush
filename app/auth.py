@@ -50,7 +50,7 @@ def phone_for(identifier):
     """Login accepts a mobile number or a member ID (NR-0002 / nr2)."""
     m = re.fullmatch(r"\s*nr-?\s*0*(\d+)\s*", identifier or "", re.I)
     if m:
-        u = db.one("SELECT phone FROM users WHERE id=? AND is_admin=0", int(m.group(1)))
+        u = db.one("SELECT phone FROM users WHERE id=? AND role IS NULL", int(m.group(1)))
         if not u:
             raise AuthError("No member with that ID")
         return u["phone"]
@@ -84,6 +84,8 @@ def request_login_code(phone, ip=None):
     """Send a one-time code. Works for any number: new people sign up by logging in.
     Returns (code, is_new, phone). The HTTP layer shows the code only in DEMO_MODE."""
     phone = phone_for(phone)
+    if not otp_available():
+        raise AuthError("Mobile verification isn't switched on yet. Please call the arena.")
     prev = db.one("SELECT expires_at FROM login_otps WHERE phone=?", phone)
     if prev and clock.parse(prev["expires_at"]) - timedelta(minutes=OTP_TTL_MIN - 1) >= clock.now():
         raise AuthError("A code was just sent. Please wait a minute before asking again.")
@@ -97,6 +99,11 @@ def request_login_code(phone, ip=None):
     )
     notify.send("login_otp", phone, {"code": code})
     return code, not db.one("SELECT 1 AS x FROM users WHERE phone=?", phone), phone
+
+
+def otp_available():
+    """Codes can only reach a phone through a real SMS/WhatsApp provider (or on screen in demo mode)."""
+    return config.DEMO_MODE or config.SMS_PROVIDER != "console" or config.WHATSAPP_PROVIDER != "console"
 
 
 def consume_code(phone, code):
@@ -114,7 +121,7 @@ def consume_code(phone, code):
     return phone
 
 
-def verify_login_code(phone, code, name=None):
+def verify_login_code(phone, code, name=None, ref=None):
     phone = phone_for(phone)
     user = db.one("SELECT id FROM users WHERE phone=?", phone)
     if not user and not (name or "").strip():
@@ -124,13 +131,24 @@ def verify_login_code(phone, code, name=None):
         uid = db.conn().execute("INSERT INTO users(name,phone,created_at) VALUES(?,?,?)",
                                 (name.strip()[:80], phone, clock.fmt(clock.now()))).lastrowid
         db.conn().execute("UPDATE bookings SET user_id=? WHERE phone=? AND user_id IS NULL", (uid, phone))
+        if ref:  # arrived on a friend's referral link; a bad code shouldn't block signing up
+            from . import members
+            try:
+                members.set_referrer(uid, ref)
+            except members.MemberError:
+                pass
         return new_session(uid)
     return new_session(user["id"])
 
 
 def admin_login(phone, password):
+    """Staff login: admin or receptionist."""
     phone = normalize_phone(phone)
-    u = db.one("SELECT id, password_hash FROM users WHERE phone=? AND is_admin=1", phone)
+    if not config.DEMO_MODE and password in ("admin123", "desk123"):
+        # The built-in demo passwords are public knowledge; never accept them on the real site.
+        raise AuthError("This login still has its default password. Set ADMIN_PASSWORD and "
+                        "RECEPTION_PASSWORD in the hosting settings, then redeploy.")
+    u = db.one("SELECT id, password_hash FROM users WHERE phone=? AND role IN ('admin','reception')", phone)
     if not u or not check_password(password or "", u["password_hash"]):
         raise AuthError("Wrong phone or password")
     return new_session(u["id"])
@@ -151,9 +169,43 @@ def user_for(token):
     s = db.one("SELECT user_id, expires_at FROM sessions WHERE token=?", token)
     if not s or clock.parse(s["expires_at"]) < clock.now():
         return None
-    return db.one("SELECT id,name,phone,email,is_admin,sms_opt,wa_opt,lock_user_id,guardian_name "
+    return db.one("SELECT id,name,phone,email,is_admin,role,sms_opt,wa_opt,lock_user_id,guardian_name "
                   "FROM users WHERE id=?", s["user_id"])
 
 
 def logout(token):
     db.conn().execute("DELETE FROM sessions WHERE token=?", (token,))
+
+
+def add_staff(name, phone, password, role="reception"):
+    """Admin creates (or resets) a staff login."""
+    phone = normalize_phone(phone)
+    if role not in ("admin", "reception"):
+        raise AuthError("Unknown role")
+    if not (name or "").strip():
+        raise AuthError("Name is required")
+    if len(password or "") < 6:
+        raise AuthError("Password needs at least 6 characters")
+    u = db.one("SELECT id, role FROM users WHERE phone=?", phone)
+    if u and u["role"] is None:
+        raise AuthError("That number belongs to a customer account. Use a different number for staff.")
+    if u:
+        db.conn().execute("UPDATE users SET name=?, role=?, is_admin=?, password_hash=? WHERE id=?",
+                          (name.strip(), role, int(role == "admin"), hash_password(password), u["id"]))
+        return u["id"]
+    return db.conn().execute(
+        "INSERT INTO users(name,phone,role,is_admin,password_hash,created_at) VALUES(?,?,?,?,?,?)",
+        (name.strip(), phone, role, int(role == "admin"), hash_password(password), clock.fmt(clock.now()))).lastrowid
+
+
+def remove_staff(user_id, acting_user_id):
+    if int(user_id) == int(acting_user_id):
+        raise AuthError("You can't remove your own login")
+    u = db.one("SELECT role FROM users WHERE id=?", user_id)
+    if not u or not u["role"]:
+        raise AuthError("Not a staff login")
+    if u["role"] == "admin" and db.one("SELECT COUNT(*) AS n FROM users WHERE role='admin'")["n"] <= 1:
+        raise AuthError("Keep at least one admin")
+    db.conn().execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+    db.conn().execute("UPDATE users SET role=NULL, is_admin=0, password_hash=NULL, phone='x'||id||'-'||phone "
+                      "WHERE id=?", (user_id,))

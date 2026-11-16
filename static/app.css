@@ -1,41 +1,36 @@
-/* NetRush design system — sporty, calm surfaces, one electric accent. */
+/* NetRush design system, built on the brand green. Light theme only. */
 @import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
 
 :root {
-  --bg: #f4f5f1;
+  /* NetRush brand: forest green #336a29 from the logo, its 50% tint (sage) and a deep green for dark panels. */
+  --bg: #f5f7f2;
   --surface: #ffffff;
-  --surface-2: #f0f2ed;
-  --surface-3: #e7eae3;
-  --ink: #0d1411;
-  --ink-2: #56625b;
-  --ink-3: #8a948e;
-  --line: #e3e6df;
-  --night: #0d1411;          /* hero / dark panels (same in both themes) */
-  --night-2: #16201b;
-  --lime: #c6f135;           /* the accent: tennis-ball lime */
-  --lime-ink: #0d1411;
-  --brand: #0d1411;          /* primary buttons */
+  --surface-2: #eef2ea;
+  --surface-3: #e1e8dc;
+  --ink: #142412;
+  --ink-2: #4f5f4b;
+  --ink-3: #869282;
+  --line: #dfe6d9;
+  --green: #336a29;          /* the logo green */
+  --sage: #99b494;           /* the logo's lighter swoosh */
+  --night: #142e12;          /* deep green: hero, sidebar, dark panels */
+  --night-2: #1d3f19;
+  --lime: #c3e6ae;           /* light leaf green: highlights and buttons on dark panels */
+  --lime-ink: #142412;
+  --brand: #336a29;          /* primary buttons */
   --brand-ink: #ffffff;
-  --badminton: #0e9f6e;
-  --padel: #6d4aff;
-  --pickleball: #f06a1f;
-  --ok: #15803d;
+  --badminton: #336a29;
+  --padel: #5a4fcf;
+  --pickleball: #dd7419;
+  --ok: #2f7d32;
   --warn: #b45309;
-  --bad: #dc2626;
+  --bad: #d23b2a;
   --radius: 18px;
   --radius-sm: 12px;
-  --shadow: 0 1px 2px rgb(13 20 17 / .04), 0 8px 28px rgb(13 20 17 / .06);
-  --shadow-lg: 0 24px 60px rgb(13 20 17 / .18);
+  --shadow: 0 1px 2px rgb(20 46 18 / .05), 0 8px 28px rgb(20 46 18 / .07);
+  --shadow-lg: 0 24px 60px rgb(20 46 18 / .2);
   --font: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #090d0b; --surface: #111815; --surface-2: #17201b; --surface-3: #202a24; --ink: #eef3ef;
-    --ink-2: #a3aea7; --ink-3: #6f7a73; --line: #222c26; --brand: #c6f135; --brand-ink: #0d1411;
-    --badminton: #34d399; --padel: #9b87ff; --pickleball: #ff8a4c; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
-    --shadow: 0 1px 2px rgb(0 0 0 / .4); --shadow-lg: 0 24px 60px rgb(0 0 0 / .6); color-scheme: dark;
-  }
 }
 
 * { box-sizing: border-box; }
@@ -62,19 +57,17 @@ header.top { position: sticky; top: 0; z-index: 25; background: color-mix(in srg
 header.top .wrap { display: flex; align-items: center; gap: 16px; height: 64px; }
 .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.12rem; letter-spacing: -.03em;
   text-decoration: none; color: var(--ink); white-space: nowrap; }
-.logo i { width: 30px; height: 30px; border-radius: 9px; background: var(--night); position: relative; flex: none;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / .06); }
-.logo i::before { content: ""; position: absolute; inset: 8px; border-radius: 50%; background: var(--lime);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--lime) 70%, transparent); }
-.logo i::after { content: ""; position: absolute; left: 4px; right: 4px; top: 14px; height: 2px; background: var(--night);
-  transform: rotate(-35deg); }
-.logo small { font-weight: 600; color: var(--ink-3); font-size: .78rem; letter-spacing: 0; }
+.logo i { width: 34px; height: 36px; flex: none; background: url(/brand/mark.png) center / contain no-repeat; }
+.logo > span { width: 118px; height: 21px; font-size: 0; color: transparent; background: url(/brand/wordmark.png) left center / contain no-repeat; }
+.side .logo i, .on-dark .logo i { background-image: url(/brand/mark-white.png); }
+.side .logo > span, .on-dark .logo > span { background-image: url(/brand/wordmark-white.png); }
+.logo small { font-weight: 700; color: var(--ink-3); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
 header.top nav { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 header.top nav a { text-decoration: none; color: var(--ink-2); font-weight: 600; font-size: .9rem; padding: 8px 12px;
   border-radius: 999px; }
 header.top nav a:hover { color: var(--ink); background: var(--surface-2); }
-header.top nav a.cta { background: var(--ink); color: var(--bg); }
-header.top nav a.cta:hover { background: var(--ink); opacity: .9; }
+header.top nav a.cta { background: var(--brand); color: #fff; }
+header.top nav a.cta:hover { background: var(--brand); opacity: .9; }
 
 main, main.wrap { padding-top: 28px; padding-bottom: 130px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px;
@@ -111,9 +104,9 @@ button.block, .btn.block { width: 100%; }
 label { display: block; font-size: .8rem; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
 input, select, textarea { font: inherit; width: 100%; padding: 12px 14px; border-radius: var(--radius-sm);
   border: 1px solid var(--line); background: var(--surface); color: var(--ink); transition: border-color .15s, box-shadow .15s; }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--ink);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--lime) 45%, transparent); }
-input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--ink); padding: 0; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--green);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sage) 45%, transparent); }
+input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--green); padding: 0; }
 .field + .field { margin-top: 14px; }
 .check { display: flex; gap: 10px; align-items: center; color: var(--ink); font-size: .92rem; font-weight: 500; margin: 8px 0; }
 
@@ -167,7 +160,7 @@ code.big { font-size: 1.05rem; font-weight: 800; letter-spacing: .18em; font-fam
 .steps-line i { font-style: normal; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
   background: var(--surface-3); color: var(--ink-2); font-size: .72rem; }
 .steps-line .on { color: var(--ink); }
-.steps-line .on i { background: var(--ink); color: var(--bg); }
+.steps-line .on i { background: var(--green); color: #fff; }
 .steps-line hr { flex: 0 1 28px; border: 0; border-top: 2px dashed var(--line); margin: 0; }
 
 /* ---------- booking ---------- */
@@ -191,7 +184,7 @@ code.big { font-size: 1.05rem; font-weight: 800; letter-spacing: .18em; font-fam
   background: var(--surface); color: var(--ink); border: 1px solid var(--line); padding: 10px 8px; border-radius: 16px; font-weight: 600; }
 .date small { font-size: .68rem; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
 .date b { font-size: 1.25rem; font-weight: 800; letter-spacing: -.02em; }
-.date[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.date[aria-pressed="true"] { background: var(--green); color: #fff; border-color: var(--green); }
 .date[aria-pressed="true"] small { color: inherit; opacity: .65; }
 
 .legend { display: flex; gap: 14px; font-size: .78rem; color: var(--ink-2); font-weight: 600; flex-wrap: wrap; }
@@ -281,15 +274,15 @@ code.big { font-size: 1.05rem; font-weight: 800; letter-spacing: .18em; font-fam
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .chart .gridline { stroke: var(--line); stroke-width: 1; }
 .chart .axis { fill: var(--ink-3); font-size: 11px; font-family: var(--font); }
-.chart .bar-mark { fill: var(--ink); }
-.chart .bar-mark.hl, .chart .hit:hover + .bar-mark { fill: var(--badminton); }
+.chart .bar-mark { fill: var(--green); }
+.chart .bar-mark.hl, .chart .hit:hover + .bar-mark { fill: var(--night); }
 .chart .hit { fill: transparent; cursor: default; }
 .tip { position: absolute; pointer-events: none; background: var(--night); color: #fff; font-size: .8rem; font-weight: 600;
   padding: 7px 10px; border-radius: 10px; white-space: nowrap; transform: translate(-50%, -110%); box-shadow: var(--shadow-lg); z-index: 5; }
 .tip span { display: block; color: rgb(255 255 255 / .6); font-weight: 500; font-size: .72rem; }
 .hbar { display: grid; grid-template-columns: 150px 1fr 56px; gap: 12px; align-items: center; margin: 10px 0; font-size: .88rem; }
 .hbar .track { height: 10px; background: var(--surface-3); border-radius: 99px; overflow: hidden; display: flex; gap: 2px; }
-.hbar .track i { display: block; height: 100%; background: var(--ink); border-radius: 99px; }
+.hbar .track i { display: block; height: 100%; background: var(--green); border-radius: 99px; }
 .hbar .track i.acad { background: repeating-linear-gradient(135deg, var(--ink-3) 0 3px, transparent 3px 6px); }
 .insight { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: .92rem; }
 .insight:last-child { border-bottom: 0; }
@@ -323,7 +316,7 @@ code.big { font-size: 1.05rem; font-weight: 800; letter-spacing: .18em; font-fam
 .demo-bar .wrap { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding-top: 7px; padding-bottom: 7px; }
 .demo-bar b { font-weight: 800; }
 .demo-bar a { font-weight: 800; text-decoration: underline; text-underline-offset: 2px; }
-.demo-hint { background: color-mix(in srgb, var(--lime) 30%, var(--surface)); border: 1px dashed color-mix(in srgb, var(--ink) 30%, transparent);
+.demo-hint { background: color-mix(in srgb, var(--lime) 38%, var(--surface)); border: 1px dashed color-mix(in srgb, var(--ink) 30%, transparent);
   border-radius: 12px; padding: 10px 12px; font-size: .84rem; }
 .demo-hint code { font-weight: 800; font-size: .95rem; letter-spacing: .08em; }
 

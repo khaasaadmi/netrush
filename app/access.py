@@ -136,6 +136,8 @@ def issue_due_codes():
     """Create + send codes for confirmed bookings: straight away if DOOR_CODE_AT_BOOKING, else once
     the window opens. The code only opens the door from DOOR_CODE_LEAD_MIN before start. Safe to
     call any time; UNIQUE(booking_id) on door_codes makes it idempotent."""
+    if not config.LOCK_ENABLED:
+        return []
     now = clock.now()
     lead = timedelta(minutes=config.DOOR_CODE_LEAD_MIN)
     horizon = now + (timedelta(days=config.BOOKING_HORIZON_DAYS + 1) if config.DOOR_CODE_AT_BOOKING else lead)
@@ -268,6 +270,8 @@ def sync_member_access():
     only touches the lock when something changed."""
     from datetime import date
     changes = []
+    if not config.LOCK_ENABLED:
+        return changes
     for u in db.all_("SELECT id, name, lock_user_id, lock_enabled FROM users WHERE lock_user_id IS NOT NULL "
                      "AND lock_user_id <> ''"):
         until = entitlement(u["id"])

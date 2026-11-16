@@ -22,15 +22,25 @@ PARAMS = {
     "booking_cancelled": ["name", "ref", "court", "when", "refund"],
     "refund_issued": ["amount", "what", "days"],
     "membership_confirmed": ["name", "plan", "end_date", "access"],
+    "reservation_received": ["name", "ref", "court", "when", "deadline", "phone", "amount"],
+    "reservation_released": ["name", "ref", "court", "when"],
+    "referral_reward": ["name", "friend", "amount", "credit"],
 }
 
 TEXT = {
     "door_code": "Hi {name}, your entry code for {court} is {code}. Works {valid_from}-{valid_to}. "
     "Enter it on the door keypad. Enjoy your game!",
-    "booking_confirmed": "Hi {name}, booking {ref} confirmed: {court}, {when}. "
-    "Your door entry code comes in a separate message and opens the door from {lead} min before start.",
+    "booking_confirmed": "Hi {name}, booking {ref} confirmed: {court}, {when}. " + (
+        "Your door entry code comes in a separate message and opens the door from {lead} min before start."
+        if config.LOCK_ENABLED else "Show this message at the reception when you arrive. See you on court!"),
+    "reservation_received": "Hi {name}, we are holding {court}, {when} for you (ref {ref}, {amount}). "
+    "Confirm by {deadline}: pay online from your booking link or call {phone}. After that the slot is released.",
+    "referral_reward": "Hi {name}, {friend} just joined NetRush with your referral. {amount} credit added: "
+    "you now have {credit} off your next membership payment. Thank you!",
+    "reservation_released": "Hi {name}, your reservation {ref} ({court}, {when}) was not confirmed in time and "
+    "has been released. Book again any time at " + config.PUBLIC_URL + "/book",
     "membership_reminder": "Hi {name}, your {plan} membership {when} ({end_date}). "
-    "Renew online at " + config.PUBLIC_URL + "/portal or at the desk to keep your fingerprint access active.",
+    "Renew online at " + config.PUBLIC_URL + "/portal or at the desk to keep playing.",
     "academy_fee_reminder": "Hi {name}, academy fees for {batch} are paid until {end_date} and {when}. "
     "Please renew to continue training.",
     "login_otp": "{code} is your " + config.FACILITY_NAME + " login code. Valid 5 minutes. Do not share it.",
@@ -76,6 +86,16 @@ def _sms(kind, phone, params, text):
             data={"To": "+" + e164(phone), "From": config.TWILIO_FROM, "Body": text},
             auth=(config.TWILIO_SID, config.TWILIO_TOKEN),
         )
+    elif p == "2factor":
+        # 2Factor.in OTP API: uses their pre-approved DLT template, so no DLT registration of your own.
+        if kind != "login_otp":
+            raise RuntimeError("2factor is set up for OTP messages only")
+        url = (f"https://2factor.in/API/V1/{config.TWOFACTOR_API_KEY}/SMS/{e164(phone)[-10:]}/"
+               f"{params['code']}/{config.TWOFACTOR_TEMPLATE}")
+        with urllib.request.urlopen(url, timeout=15) as r:
+            out = json.loads(r.read())
+        if out.get("Status") != "Success":
+            raise RuntimeError(f"2factor: {out}")
     elif p == "msg91":
         flow = config.MSG91_FLOWS.get(kind)
         if not flow:
@@ -106,7 +126,7 @@ def _whatsapp(kind, phone, params, text):
                 "messaging_product": "whatsapp",
                 "to": e164(phone),
                 "type": "template",
-                "template": {"name": config.WA_TEMPLATES[kind], "language": {"code": config.WA_LANG},
+                "template": {"name": config.WA_TEMPLATES.get(kind, kind), "language": {"code": config.WA_LANG},
                              "components": components},
             },
             headers={"Authorization": f"Bearer {config.WA_TOKEN}"},
@@ -135,6 +155,11 @@ def send(kind, phone, params, dedupe_key=None, channels=None):
     text = render(kind, params)
     result = {}
     for ch in channels or channels_for(phone):
+        if ch == "sms" and config.SMS_PROVIDER == "2factor" and kind != "login_otp":
+            continue  # OTP-only SMS account: other messages go by WhatsApp (when connected)
+        if kind == "login_otp" and ch == "whatsapp" and config.WHATSAPP_PROVIDER == "console" \
+                and not config.DEMO_MODE:
+            continue
         key = f"{dedupe_key}:{ch}" if dedupe_key else None
         c = db.conn()
         try:

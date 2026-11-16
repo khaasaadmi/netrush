@@ -39,8 +39,10 @@ def report(days=30):
         "SELECT c.sport, SUM(p.amount) AS amt FROM payments p JOIN bookings b ON b.id=p.ref_id AND p.kind='booking' "
         "JOIN courts c ON c.id=b.court_id WHERE p.status='paid' AND p.paid_at>=? AND p.paid_at<? GROUP BY c.sport",
         lo, hi)}
-    outstanding = db.one("SELECT COALESCE(SUM(amount),0) AS a, COUNT(*) AS n FROM bookings "
-                         "WHERE status='confirmed' AND pay_status='unpaid'")
+    outstanding = db.one(
+        "SELECT COALESCE(SUM(b.amount - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.kind='booking' "
+        "AND p.ref_id=b.id AND p.status='paid'),0)),0) AS a, COUNT(*) AS n FROM bookings b "
+        "WHERE b.status='confirmed' AND b.pay_status='unpaid'")
     comp = db.one("SELECT COALESCE(SUM(amount),0) AS a, COUNT(*) AS n FROM bookings WHERE status='confirmed' "
                   "AND pay_status='comp' AND start>=? AND start<?", lo, hi)
     refunds_open = db.one("SELECT COALESCE(SUM(refund_amount),0) AS a, COUNT(*) AS n FROM payments "
@@ -115,7 +117,7 @@ def report(days=30):
     out = {
         "range": {"from": lo, "to": t, "days": days},
         "money": {"gross": gross, "online": online, "desk": desk, "refunded": refunded, "net": gross - refunded,
-                  "courts": by_kind["booking"], "memberships": by_kind["membership"], "academy": by_kind["academy"],
+                  "courts": by_kind["booking"], "memberships": by_kind["membership"], "academy": by_kind["academy"], "other": by_kind["other"],
                   "unpaid_reservations": outstanding["a"], "unpaid_count": outstanding["n"],
                   "complimentary": comp["a"], "complimentary_count": comp["n"],
                   "refunds_open": refunds_open["a"], "refunds_open_count": refunds_open["n"]},

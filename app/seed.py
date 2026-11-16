@@ -25,10 +25,10 @@ def seed(c):
     ensure_online_plan(c)  # plan 6: the membership sold in the portal
     now = clock.fmt(clock.now())
     c.execute(
-        "INSERT INTO users(name,phone,is_admin,password_hash,created_at) VALUES(?,?,1,?,?)",
-        ("Front Desk", config.ADMIN_PHONE, hash_password(config.ADMIN_PASSWORD), now),
+        "INSERT INTO users(name,phone,is_admin,role,password_hash,created_at) VALUES(?,?,1,'admin',?,?)",
+        ("NetRush Admin", config.ADMIN_PHONE, hash_password(config.ADMIN_PASSWORD), now),
     )
-    if config.env("SEED_DEMO", "1") == "0":
+    if not config.SEED_DEMO:
         return
 
     t = clock.today()
@@ -225,6 +225,24 @@ def _rich(c, today, core_ids):
     c.execute("INSERT INTO notifications(kind,channel,to_phone,body,status,error,created_at) "
               "VALUES('booking_confirmed','whatsapp','9811100013','(demo) failed message','failed',"
               "'Recipient is not on WhatsApp',?)", (at(-2, 18, 5),))
+    # ---- where visitors came from: two agencies, organic channels and direct
+    channels = [("agency-brightads", "paid", "launch-offer", 420, 9), ("agency-sportsreach", "paid", "padel-weekend", 260, 4),
+                ("instagram", None, None, 310, 6), ("google", None, None, 380, 11), ("whatsapp", None, None, 90, 5),
+                ("direct", None, None, 240, 12)]
+    heard = ["Friend or family", "Friend or family", "Instagram", "Google search", "Poster / hoarding", None, None]
+    online = [r[0] for r in c.execute("SELECT id FROM bookings WHERE source='online'").fetchall()]
+    weights = [ch[4] * ch[3] for ch in channels]
+    for bid in online:
+        ch = rnd.choices(channels, weights)[0]
+        c.execute("UPDATE bookings SET utm=?, heard=? WHERE id=?",
+                  (ch[0] + ("/" + ch[2] if ch[2] else ""), rnd.choice(heard), bid))
+    n = 0
+    for src, medium, camp, visitors, _ in channels:
+        for _ in range(visitors):
+            n += 1
+            c.execute("INSERT INTO visits(at,vid,source,medium,campaign,path) VALUES(?,?,?,?,?,'/')",
+                      (at(-rnd.randint(0, 29), rnd.randint(7, 22), rnd.randint(0, 59)), f"demo{n}", src, medium, camp))
+
     # door codes for seeded bookings were created silently; don't send them again on startup
     for (bid,) in c.execute("SELECT booking_id FROM door_codes").fetchall():
         c.execute("INSERT OR REPLACE INTO kv(k,v) VALUES(?, '1')", (f"door_reminded:{bid}",))
@@ -290,6 +308,17 @@ def ensure_online_plan(c):
     else:
         c.execute("INSERT INTO plans(name,sport,duration_days,price) VALUES(?,NULL,30,?)",
                   (ONLINE_PLAN, config.ONLINE_MEMBERSHIP_MONTHLY))
+
+
+def ensure_reception(c):
+    """One receptionist login out of the box (added last so demo member IDs stay NR-0002…)."""
+    if c.execute("SELECT 1 FROM users WHERE role='reception'").fetchone():
+        return
+    if c.execute("SELECT 1 FROM users WHERE phone=?", (config.RECEPTION_PHONE,)).fetchone():
+        return
+    from .auth import hash_password
+    c.execute("INSERT INTO users(name,phone,role,password_hash,created_at) VALUES('Reception',?,'reception',?,?)",
+              (config.RECEPTION_PHONE, hash_password(config.RECEPTION_PASSWORD), clock.fmt(clock.now())))
 
 
 def online_plan_id():

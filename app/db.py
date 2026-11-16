@@ -11,6 +11,10 @@ CREATE TABLE IF NOT EXISTS users (
     phone         TEXT NOT NULL UNIQUE,       -- 10-digit, no country code
     email         TEXT,
     is_admin      INTEGER NOT NULL DEFAULT 0,
+    role          TEXT,                       -- admin | reception | NULL (member / guest)
+    referred_by   INTEGER,                    -- user id of the member who referred them
+    referral_rewarded INTEGER NOT NULL DEFAULT 0,  -- their referrer has been credited (once, ever)
+    credit        INTEGER NOT NULL DEFAULT 0, -- rupees off their next membership payment
     password_hash TEXT,                       -- admins only
     sms_opt       INTEGER NOT NULL DEFAULT 1,
     wa_opt        INTEGER NOT NULL DEFAULT 1,
@@ -85,7 +89,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     start        TEXT NOT NULL,                 -- YYYY-MM-DD HH:MM
     end          TEXT NOT NULL,
     amount       INTEGER NOT NULL,
-    status       TEXT NOT NULL,                 -- pending | confirmed | cancelled | expired
+    status       TEXT NOT NULL,                 -- pending | reserved | confirmed | cancelled | expired
     hold_until   TEXT,
     payment_ref  TEXT,
     paid_at      TEXT,
@@ -96,19 +100,24 @@ CREATE TABLE IF NOT EXISTS bookings (
     cancelled_by TEXT,                          -- customer | staff | system
     refund_amount INTEGER NOT NULL DEFAULT 0,
     email        TEXT,
-    access_key   TEXT                           -- secret in the confirmation link (no login needed)
+    access_key   TEXT,                          -- secret in the confirmation link (no login needed)
+    discount     INTEGER NOT NULL DEFAULT 0,    -- rupees taken off (first-booking offer); amount is what's due
+    utm          TEXT,                          -- where the visitor came from: "source" or "source/campaign"
+    heard        TEXT                           -- their answer to "How did you hear about us?"
 );
 CREATE INDEX IF NOT EXISTS ix_bookings_court_start ON bookings(court_id, start);
 
 -- Every rupee in (and back out). Bookings, memberships and academy fees, online or at the desk.
 CREATE TABLE IF NOT EXISTS payments (
     id              INTEGER PRIMARY KEY,
-    kind            TEXT NOT NULL,     -- booking | membership | academy
+    kind            TEXT NOT NULL,     -- booking | membership | academy | other
+    method          TEXT,              -- cash | upi | card | online | credit
+    note            TEXT,              -- what an 'other' payment was for; who recorded it
     ref_id          INTEGER,           -- booking / membership / enrollment id (membership: set once fulfilled)
     user_id         INTEGER,
     phone           TEXT,
     amount          INTEGER NOT NULL,  -- rupees
-    provider        TEXT NOT NULL,     -- mock | razorpay | desk
+    provider        TEXT NOT NULL,     -- mock | razorpay | desk (taken by staff)
     order_id        TEXT,              -- gateway order id
     payment_id      TEXT,              -- gateway payment id
     status          TEXT NOT NULL,     -- created | paid
@@ -173,6 +182,19 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at TEXT NOT NULL
 );
 
+-- One row per visitor session on the public site, with where they came from.
+CREATE TABLE IF NOT EXISTS visits (
+    id        INTEGER PRIMARY KEY,
+    at        TEXT NOT NULL,
+    vid       TEXT NOT NULL,       -- random id kept in the visitor's browser (no personal data)
+    source    TEXT NOT NULL,       -- agency / channel: utm_source, or worked out from the referrer, or 'direct'
+    medium    TEXT,
+    campaign  TEXT,
+    referrer  TEXT,                -- referring site's host name
+    path      TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_visits_at ON visits(at);
+
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 """
 
@@ -194,6 +216,7 @@ def init(path=None):
     c.execute("BEGIN")  # one transaction: seeding thousands of demo rows one commit at a time is slow
     seed.seed(c)
     seed.ensure_online_plan(c)
+    seed.ensure_reception(c)
     c.execute("COMMIT")
 
 
@@ -202,9 +225,12 @@ _ADDED = {
     "bookings": [
         ("pay_status", "TEXT NOT NULL DEFAULT 'unpaid'"), ("source", "TEXT NOT NULL DEFAULT 'online'"),
         ("cancelled_at", "TEXT"), ("cancelled_by", "TEXT"), ("refund_amount", "INTEGER NOT NULL DEFAULT 0"),
-        ("email", "TEXT"), ("access_key", "TEXT"),
+        ("email", "TEXT"), ("access_key", "TEXT"), ("discount", "INTEGER NOT NULL DEFAULT 0"), ("utm", "TEXT"),
+        ("heard", "TEXT"),
     ],
-    "payments": [("secret", "TEXT")],
+    "payments": [("secret", "TEXT"), ("method", "TEXT"), ("note", "TEXT")],
+    "users": [("role", "TEXT"), ("referred_by", "INTEGER"), ("referral_rewarded", "INTEGER NOT NULL DEFAULT 0"),
+              ("credit", "INTEGER NOT NULL DEFAULT 0")],
 }
 
 
@@ -218,6 +244,8 @@ def _upgrade(c):
                 c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
                 if (table, name) == ("bookings", "pay_status"):
                     c.execute("UPDATE bookings SET pay_status='paid' WHERE paid_at IS NOT NULL")
+                if (table, name) == ("users", "role"):
+                    c.execute("UPDATE users SET role='admin' WHERE is_admin=1")
 
 
 def conn():
@@ -263,7 +291,7 @@ def kv_set(k, v):
     conn().execute("INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (k, v))
 
 
-TABLES = ["sessions", "login_otps", "notifications", "access_events", "door_codes", "payments", "bookings",
+TABLES = ["visits", "sessions", "login_otps", "notifications", "access_events", "door_codes", "payments", "bookings",
           "court_blocks", "academy_enrollments", "academy_batches", "memberships", "plans", "courts", "users", "kv"]
 
 
@@ -276,4 +304,5 @@ def reset():
     from . import seed
     seed.seed(c)
     seed.ensure_online_plan(c)
+    seed.ensure_reception(c)
     c.execute("COMMIT")

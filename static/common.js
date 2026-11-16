@@ -55,14 +55,43 @@ const ICON = {
   chat: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z"/></svg>`,
 };
 
-// Demo mode: a lime strip under the header linking the demo phone, web door keypad and demo logins.
+// Demo mode: a lime strip under the header linking the demo phone and demo logins.
 function demoBar(cfg) {
   if (!cfg || !cfg.demo || $(".demo-bar")) return;
   const bar = document.createElement("div");
   bar.className = "demo-bar";
-  bar.innerHTML = `<div class="wrap"><b>DEMO</b><span>No real SMS, payments or lock. Everything else is live.</span>
+  bar.innerHTML = `<div class="wrap"><b>DEMO</b><span>No real SMS or payments. Everything else is live.</span>
     <span class="spacer"></span><a href="/demo" target="_blank">📱 Demo phone</a>
-    <a href="/door" target="_blank">🚪 Door keypad</a><a href="/demo#logins" target="_blank">🔑 Demo logins</a></div>`;
+    ${cfg.lock ? `<a href="/door" target="_blank">🚪 Door keypad</a>` : ""}<a href="/demo#logins" target="_blank">🔑 Demo logins</a></div>`;
   const header = $("header.top");
   header ? header.after(bar) : document.body.prepend(bar);
 }
+
+// ---- Where did this visitor come from? (first-party, no personal data)
+// A tagged link (?utm_source=agency&utm_campaign=x) or an outside referrer sets the source; it is kept for
+// 30 days so a booking made later is still credited. One visit is reported per browser session.
+const store = { get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
+function rememberCampaign() {
+  const q = new URLSearchParams(location.search);
+  let ref = "";
+  try { const h = new URL(document.referrer).hostname; if (h && h !== location.hostname) ref = h; } catch (e) {}
+  const source = q.get("utm_source") || q.get("src") || "";
+  let src = store.get("nr_src");
+  if (src && Date.now() - src.ts > 30 * 864e5) src = null;
+  if (source || ref || !src)
+    src = (source || ref) ? { source, medium: q.get("utm_medium") || "", campaign: q.get("utm_campaign") || "", referrer: ref, ts: Date.now() }
+      : { source: "", medium: "", campaign: "", referrer: "", ts: Date.now() };
+  store.set("nr_src", src);
+  let vid = store.get("nr_vid");
+  if (!vid) { vid = Math.random().toString(36).slice(2) + Date.now().toString(36); store.set("nr_vid", vid); }
+  try {
+    const key = (src.source || src.referrer || "direct") + "/" + src.campaign;   // once per session per source
+    if (sessionStorage.getItem("nr_seen") !== key) {
+      sessionStorage.setItem("nr_seen", key);
+      fetch("/api/track", { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true,
+        body: JSON.stringify({ vid, source: src.source, medium: src.medium, campaign: src.campaign, referrer: src.referrer, path: location.pathname }) });
+    }
+  } catch (e) {}
+}
+const campaign = () => store.get("nr_src") || {};

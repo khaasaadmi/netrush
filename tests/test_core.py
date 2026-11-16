@@ -13,8 +13,10 @@ import unittest
 from contextlib import redirect_stdout
 from datetime import date, datetime, timedelta
 
+os.environ["DEMO_MODE"] = "1"   # tests run against the demo setup (mock gateway, on-screen codes)
 os.environ["SEED_DEMO"] = "1"
 os.environ["SEED_HISTORY"] = "0"  # tests count money exactly
+os.environ["LOCK_ENABLED"] = "1"  # the door tests still run while the lock is switched off in production
 
 from app import (access, analytics, auth, bookings, clock, config, db, health,  # noqa: E402
                  members, payments, scheduler)

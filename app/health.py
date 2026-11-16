@@ -34,10 +34,14 @@ def checks():
                    "WHERE channel=? AND created_at>=?", ch, day_ago)
         sent, failed = r["ok"] or 0, r["bad"] or 0
         err = db.one("SELECT error FROM notifications WHERE channel=? AND status='failed' ORDER BY id DESC LIMIT 1", ch)
-        if provider in DEMO:
-            add(label, "warn", f"Demo mode: messages only print in the server log ({sent} in 24h). "
-                               "Customers are not receiving anything.",
-                "Set up the provider keys in .env (see README).")
+        if ch == "sms" and provider == "2factor":
+            add(label, "ok" if not failed else "warn",
+                f"OTP codes only (2Factor): {sent} sent, {failed} failed in 24h. Other messages need WhatsApp or DLT SMS.")
+        elif provider in DEMO:
+            what = ("Login codes and the first-booking discount are switched off until it is."
+                    if ch == "sms" else "Booking confirmations and reminders are not reaching customers.")
+            add(label, "warn", f"Not connected, so no {label} messages are sent. " + what,
+                "Add the provider keys in the host's environment settings (see DEPLOY.md).")
         elif failed and failed >= sent:
             add(label, "bad", f"{failed} of {sent + failed} messages failed in 24h. Last error: {err and err['error']}",
                 "Check the provider account balance, API key and template approvals.")
@@ -53,9 +57,17 @@ def checks():
     pending_ref = db.one("SELECT COUNT(*) AS n FROM payments WHERE refund_status='pending'")["n"]
     manual_ref = db.one("SELECT COUNT(*) AS n, COALESCE(SUM(refund_amount),0) AS a FROM payments "
                         "WHERE refund_status='manual'")
-    if config.PAYMENT_PROVIDER in DEMO:
+    if config.PAYMENT_PROVIDER in DEMO and not config.DEMO_MODE:
+        add("Online payments", "warn", "Switched off: no payment gateway is connected, so customers can only "
+            "reserve and pay at the venue. Memberships can't be bought online.",
+            "Add your Razorpay keys (PAYMENT_PROVIDER=razorpay, RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET).")
+    elif config.PAYMENT_PROVIDER in DEMO:
         add("Online payments", "warn", "Demo mode: 'Pay now' confirms without charging anyone.",
-            "Add Razorpay keys to .env before going live.")
+            "Add Razorpay keys before going live.")
+    elif config.RAZORPAY_TEST_KEYS:
+        add("Online payments", "bad", f"Razorpay TEST keys are in use: {paid} 'payment(s)' in 24h took no real "
+            "money, yet those bookings show as paid.",
+            "Replace them with the live keys (rzp_live_...) before taking real bookings.")
     else:
         add("Online payments", "ok", f"{paid} online payment(s) in 24h.")
     if failed_ref:
@@ -69,42 +81,45 @@ def checks():
     else:
         add("Refunds", "ok", "No refunds waiting.")
 
-    # Door lock.
-    lock_fail = db.one("SELECT COUNT(*) AS n, MAX(detail) AS d FROM access_events WHERE method='system' "
-                       "AND detail LIKE 'lock %failed%' AND at>=?", day_ago)
-    if config.LOCK_PROVIDER == "console":
-        add("Door lock connection", "warn",
-            "No lock connected for pushing codes. Works only if the keypad asks the server (pull mode).",
-            "Set LOCK_PROVIDER once the lock is chosen (see README).")
-    elif lock_fail["n"]:
-        add("Door lock connection", "bad", f"{lock_fail['n']} lock command(s) failed in 24h: {lock_fail['d']}",
-            "Check the lock's gateway / bridge is powered and online.")
+    if not config.LOCK_ENABLED:
+        add("Door lock", "ok", "Switched off for now: the site runs as booking-only. Staff let players in.")
     else:
-        add("Door lock connection", "ok", "Lock commands going through.")
-    seen = db.one("SELECT MAX(at) AS at, device_id FROM access_events WHERE device_id IS NOT NULL "
-                  "AND device_id NOT IN ('simulator')")
-    if seen and seen["at"]:
-        mins = (now - clock.parse(seen["at"])).total_seconds() / 60
-        add("Door device", "ok" if mins < 24 * 60 else "warn",
-            f"Last heard from '{seen['device_id']}' {_ago(mins)}.",
-            None if mins < 24 * 60 else "Nobody has entered in a day. Check the device has power and internet.")
-    else:
-        add("Door device", "warn", "No door device has reported in yet.", "Connect the keypad / fingerprint device.")
-    lockouts = db.one("SELECT COUNT(*) AS n FROM access_events WHERE detail LIKE 'keypad locked out%' AND at>=?",
-                      day_ago)["n"]
-    if lockouts:
-        add("Keypad security", "warn", f"Keypad locked out {lockouts} time(s) in 24h after repeated wrong codes.",
-            "Someone may be guessing codes. Check the camera at the door.")
+        # Door lock.
+        lock_fail = db.one("SELECT COUNT(*) AS n, MAX(detail) AS d FROM access_events WHERE method='system' "
+                           "AND detail LIKE 'lock %failed%' AND at>=?", day_ago)
+        if config.LOCK_PROVIDER == "console":
+            add("Door lock connection", "warn",
+                "No lock connected for pushing codes. Works only if the keypad asks the server (pull mode).",
+                "Set LOCK_PROVIDER once the lock is chosen (see README).")
+        elif lock_fail["n"]:
+            add("Door lock connection", "bad", f"{lock_fail['n']} lock command(s) failed in 24h: {lock_fail['d']}",
+                "Check the lock's gateway / bridge is powered and online.")
+        else:
+            add("Door lock connection", "ok", "Lock commands going through.")
+        seen = db.one("SELECT MAX(at) AS at, device_id FROM access_events WHERE device_id IS NOT NULL "
+                      "AND device_id NOT IN ('simulator')")
+        if seen and seen["at"]:
+            mins = (now - clock.parse(seen["at"])).total_seconds() / 60
+            add("Door device", "ok" if mins < 24 * 60 else "warn",
+                f"Last heard from '{seen['device_id']}' {_ago(mins)}.",
+                None if mins < 24 * 60 else "Nobody has entered in a day. Check the device has power and internet.")
+        else:
+            add("Door device", "warn", "No door device has reported in yet.", "Connect the keypad / fingerprint device.")
+        lockouts = db.one("SELECT COUNT(*) AS n FROM access_events WHERE detail LIKE 'keypad locked out%' AND at>=?",
+                          day_ago)["n"]
+        if lockouts:
+            add("Keypad security", "warn", f"Keypad locked out {lockouts} time(s) in 24h after repeated wrong codes.",
+                "Someone may be guessing codes. Check the camera at the door.")
 
-    # Every paid booking that's already started must have a code: this should never fail.
-    missing = db.all_("SELECT b.ref FROM bookings b LEFT JOIN door_codes d ON d.booking_id=b.id "
-                      "WHERE b.status='confirmed' AND d.id IS NULL AND b.start<=? AND b.end>?",
-                      clock.fmt(now + timedelta(minutes=config.DOOR_CODE_LEAD_MIN - 1)), clock.fmt(now))
-    if missing:
-        add("Door codes", "bad", "No code issued for booking(s) " + ", ".join(m["ref"] for m in missing) + ".",
-            "Players may be stuck outside. Read them the code from the Today tab or open the door remotely.")
-    else:
-        add("Door codes", "ok", "Every current booking has its code.")
+        # Every paid booking that's already started must have a code: this should never fail.
+        missing = db.all_("SELECT b.ref FROM bookings b LEFT JOIN door_codes d ON d.booking_id=b.id "
+                          "WHERE b.status='confirmed' AND d.id IS NULL AND b.start<=? AND b.end>?",
+                          clock.fmt(now + timedelta(minutes=config.DOOR_CODE_LEAD_MIN - 1)), clock.fmt(now))
+        if missing:
+            add("Door codes", "bad", "No code issued for booking(s) " + ", ".join(m["ref"] for m in missing) + ".",
+                "Players may be stuck outside. Read them the code from the Today tab or open the door remotely.")
+        else:
+            add("Door codes", "ok", "Every current booking has its code.")
 
     # Reminders ran today (after REMINDER_HOUR).
     if now.hour >= config.REMINDER_HOUR:
@@ -114,11 +129,21 @@ def checks():
             None if ran else "Check the scheduler row above.")
 
     # Security settings left at their defaults.
-    if config.ADMIN_PASSWORD == "admin123" or config.DEVICE_SECRET == "change-me-device-secret":
-        add("Security settings", "bad", "Default staff password or door-device secret still in use.",
-            "Set ADMIN_PASSWORD and DEVICE_SECRET in .env before going live.")
+    weak = [n for n, v, d in (("ADMIN_PASSWORD", config.ADMIN_PASSWORD, "admin123"),
+                              ("RECEPTION_PASSWORD", config.RECEPTION_PASSWORD, "desk123")) if v == d]
+    if config.LOCK_ENABLED and config.DEVICE_SECRET == "change-me-device-secret":
+        weak.append("DEVICE_SECRET")
+    if weak:
+        add("Security settings", "bad", "Still on the default value: " + ", ".join(weak) + ".",
+            "Set your own values in the host's environment settings, then redeploy.")
     else:
-        add("Security settings", "ok", "Staff password and device secret are customised.")
+        add("Security settings", "ok", "Staff passwords are your own.")
+    if config.DEMO_MODE:
+        add("Demo mode", "bad", "ON: login codes show on screen and the /demo page lists the staff passwords.",
+            "Set DEMO_MODE=0 for the real site.")
+    if config.env("RENDER") and not config.env("DB_PATH"):
+        add("Data storage", "bad", "The database is on temporary storage: every restart or deploy erases all "
+            "bookings, members and payments.", "Add a persistent disk and set DB_PATH (see DEPLOY.md).")
 
     ok = db.conn().execute("PRAGMA quick_check").fetchone()[0] == "ok"
     add("Database", "ok" if ok else "bad", "Healthy." if ok else "Integrity check failed.",

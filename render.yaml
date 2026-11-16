@@ -11,7 +11,21 @@ services:
       - key: PYTHON_VERSION
         value: "3.12.7"
       - key: DEMO_MODE
-        value: "1"              # demo phone, web door keypad, on-screen login codes
+        value: "0"              # live site. "1" only for a private demo copy
+      - key: SEED_DEMO
+        value: "0"              # start empty: no demo people or history
+      - key: LOCK_ENABLED
+        value: "0"              # booking-only until the door lock is installed
+      - key: ARENA_PHONE
+        sync: false
+      - key: ARENA_ADDRESS
+        sync: false
+      - key: RECEPTION_PASSWORD
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false             # rzp_test_… for now; leave empty to keep the mock gateway
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
       - key: TRUST_PROXY
         value: "1"              # Render sits in front: read the client IP from X-Forwarded-For
       - key: FACILITY_NAME

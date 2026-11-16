@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def _load_dotenv():
     env = ROOT / ".env"
-    if not env.exists():
+    if not env.exists() or os.environ.get("NETRUSH_NO_DOTENV"):
         return
     for line in env.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -47,6 +47,28 @@ SLOT_MIN = env_int("SLOT_MIN", 60)
 BOOKING_HORIZON_DAYS = env_int("BOOKING_HORIZON_DAYS", 14)
 HOLD_MIN = env_int("HOLD_MIN", 10)        # unpaid booking holds the slot this long
 
+# The door lock isn't installed yet. While this is 0 the system is booking-only: no door codes,
+# no fingerprint sync, no door screens. Set to 1 once the lock is chosen and connected.
+LOCK_ENABLED = env("LOCK_ENABLED", "0") == "1"
+
+# "Reserve now, pay at the venue": the slot is held this long and must be confirmed in that time
+# (pay online, or call the arena). Not offered when the slot starts sooner than RESERVE_MIN_LEAD_MIN.
+RESERVE_HOLD_HOURS = env_int("RESERVE_HOLD_HOURS", 3)
+RESERVE_MIN_LEAD_MIN = env_int("RESERVE_MIN_LEAD_MIN", 60)
+
+# First booking discount for guests who verify their mobile number by OTP.
+FIRST_BOOKING_DISCOUNT_PCT = env_int("FIRST_BOOKING_DISCOUNT_PCT", 15)
+
+# Referral: when a member's friend takes their first membership, the member gets this much credit
+# (rupees) taken off their next membership payment.
+REFERRAL_REWARD = env_int("REFERRAL_REWARD", 300)
+
+# Shown on the landing page, reservations and messages.
+ARENA_PHONE = env("ARENA_PHONE", "+91 90000 00000")
+ARENA_ADDRESS = env("ARENA_ADDRESS", "NetRush Arena (address coming soon)")
+ARENA_MAPS_URL = env("ARENA_MAPS_URL", "")
+ARENA_INSTAGRAM = env("ARENA_INSTAGRAM", "")
+
 # Door code: works from this many minutes before the slot until the slot ends.
 DOOR_CODE_LEAD_MIN = env_int("DOOR_CODE_LEAD_MIN", 10)
 # 1 = send the code with the booking confirmation (it still only opens the door inside its window),
@@ -60,7 +82,9 @@ REMINDER_DAYS = [int(x) for x in env("REMINDER_DAYS", "7,0").split(",")]
 REMINDER_HOUR = env_int("REMINDER_HOUR", 10)  # local hour the daily reminder run happens
 
 # Providers
-SMS_PROVIDER = env("SMS_PROVIDER", "console")            # console | twilio | msg91
+SMS_PROVIDER = env("SMS_PROVIDER", "console")            # console | twilio | msg91 | 2factor (OTP only)
+TWOFACTOR_API_KEY = env("TWOFACTOR_API_KEY")
+TWOFACTOR_TEMPLATE = env("TWOFACTOR_TEMPLATE", "OTP1")
 WHATSAPP_PROVIDER = env("WHATSAPP_PROVIDER", "console")  # console | meta
 LOCK_PROVIDER = env("LOCK_PROVIDER", "console")          # console | http_bridge | ttlock
 PAYMENT_PROVIDER = env("PAYMENT_PROVIDER", "mock")       # mock | razorpay
@@ -113,16 +137,25 @@ RAZORPAY_KEY_ID = env("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_SECRET")
 RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET")  # catches payments whose browser closed early
 
-# Demo mode, for showing the system without real SMS / payments / lock: login codes appear on
-# screen, a "demo phone" page shows every SMS & WhatsApp sent, and a web keypad opens the door.
-# On by default while SMS is in console mode. NEVER leave on in production.
-DEMO_MODE = env("DEMO_MODE", "1" if SMS_PROVIDER == "console" else "0") == "1"
+# Demo mode, for showing the system without real SMS / payments: login codes appear on screen, a
+# "demo phone" page shows every message, the mock payment page works, and demo data is loaded.
+# OFF unless you set DEMO_MODE=1. Never turn it on for the real site.
+DEMO_MODE = env("DEMO_MODE", "0") == "1"
+SEED_DEMO = env("SEED_DEMO", "1" if DEMO_MODE else "0") == "1"
+
+# Customers can pay online only through a real gateway. The mock gateway confirms without charging,
+# so outside demo mode it is switched off and the site offers "reserve, pay at venue" only.
+ONLINE_PAY = PAYMENT_PROVIDER != "mock" or DEMO_MODE
+RAZORPAY_TEST_KEYS = PAYMENT_PROVIDER == "razorpay" and RAZORPAY_KEY_ID.startswith("rzp_test_")
 
 # Behind a hosting proxy (Render, Railway, nginx…) the client's IP is the last X-Forwarded-For entry.
 TRUST_PROXY = env("TRUST_PROXY", "0") == "1"
 
 ADMIN_PHONE = env("ADMIN_PHONE", "9999999999")
 ADMIN_PASSWORD = env("ADMIN_PASSWORD", "admin123")
+# First receptionist login (created on first run; the admin can add more in the panel).
+RECEPTION_PHONE = env("RECEPTION_PHONE", "8888888888")
+RECEPTION_PASSWORD = env("RECEPTION_PASSWORD", "desk123")
 
 # Courts are seeded once; edit here before first run (or in the DB afterwards).
 COURTS = [

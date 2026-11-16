@@ -1,7 +1,9 @@
-"""NetRush — booking, memberships, academy and unmanned door access for a multi-sport facility.
+"""NetRush — landing page, court booking, memberships and academy for a multi-sport arena.
 
-    python server.py            → http://localhost:8000  (booking)  /portal  (members)  /admin  (staff)
+    python server.py   → http://localhost:8000  (landing)  /book  /portal (members, guests)  /admin (staff)
 """
+import csv
+import io
 import json
 import re
 import sys
@@ -12,28 +14,38 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from app import access, analytics, auth, bookings, clock, config, db, health, members, payments, scheduler
+from app import (access, analytics, auth, bookings, clock, config, db, health, members, payments, scheduler,
+                 tracking)
 from app.auth import AuthError
 from app.bookings import BookingError
 from app.members import MemberError
 from app.payments import PaymentError
 
 STATIC = Path(__file__).parent / "static"
-PAGES = {"/": "index.html", "/portal": "portal.html", "/admin": "admin.html", "/pay": "pay.html",
+PAGES = {"/": "landing.html", "/book": "book.html", "/portal": "portal.html", "/admin": "admin.html", "/pay": "pay.html",
          "/booking": "booking.html", "/demo": "demo.html", "/door": "door.html"}
 TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "application/javascript",
-         ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon"}
+         ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".jpg": "image/jpeg",
+         ".jpeg": "image/jpeg", ".webp": "image/webp", ".txt": "text/plain; charset=utf-8",
+         ".xml": "application/xml", ".woff2": "font/woff2"}
 COOKIE = "nr_session"
 
 ROUTES = []
 
 
 def route(method, pattern, who="public"):
-    """who: public | user (logged-in member/player) | admin | device (signed by the door)."""
+    """who: public | user (logged-in member/guest) | staff (admin or receptionist) | admin
+    | device (signed by the door)."""
     def deco(fn):
         ROUTES.append((method, re.compile("^" + pattern + "$"), who, fn))
         return fn
     return deco
+
+
+class Raw:
+    """A non-JSON response (file download)."""
+    def __init__(self, body, content_type, filename=None):
+        self.body, self.content_type, self.filename = body, content_type, filename
 
 
 class HttpError(Exception):
@@ -56,7 +68,16 @@ def get_config(req):
             "horizon_days": config.BOOKING_HORIZON_DAYS, "slot_min": config.SLOT_MIN,
             "door_code_lead_min": config.DOOR_CODE_LEAD_MIN, "hold_min": config.HOLD_MIN,
             "payment_provider": config.PAYMENT_PROVIDER, "refund_policy": bookings.refund_policy_text(),
-            "demo": config.DEMO_MODE, "membership_months": config.ONLINE_MEMBERSHIP_MONTH_OPTIONS,
+            "demo": config.DEMO_MODE, "lock": config.LOCK_ENABLED, "otp": auth.otp_available(),
+            "online_pay": config.ONLINE_PAY,
+            "first_discount_pct": config.FIRST_BOOKING_DISCOUNT_PCT, "heard_options": tracking.HEARD,
+            "public_url": config.PUBLIC_URL,
+            "referral_reward": config.REFERRAL_REWARD,
+            "reserve_hours": config.RESERVE_HOLD_HOURS, "reserve_min_lead_min": config.RESERVE_MIN_LEAD_MIN,
+            "open_hour": config.OPEN_HOUR, "close_hour": config.CLOSE_HOUR,
+            "arena": {"phone": config.ARENA_PHONE, "address": config.ARENA_ADDRESS, "maps": config.ARENA_MAPS_URL,
+                      "instagram": config.ARENA_INSTAGRAM},
+            "membership_months": config.ONLINE_MEMBERSHIP_MONTH_OPTIONS,
             "membership_monthly": config.ONLINE_MEMBERSHIP_MONTHLY}
 
 
@@ -72,11 +93,50 @@ def get_availability(req):
 
 @route("POST", "/api/bookings")
 def post_booking(req):
-    """No account needed: name, mobile, email. Returns where to send the browser to pay."""
+    """Guest booking: name + mobile (email optional). mode 'pay' → redirect to the payment page;
+    mode 'reserve' → slot held for 3 hours, redirect to the booking page. The first-booking discount
+    applies when the caller has verified this mobile by OTP (is logged in with it)."""
     b = req.body
     out = bookings.create(b.get("court_id"), b.get("date"), b.get("start"), b.get("slots", 1),
-                          b.get("name"), b.get("phone"), b.get("email"))
-    return {"booking": _public_booking(out["booking"]), "redirect": out["payment"]["redirect"]}
+                          b.get("name"), b.get("phone"), b.get("email"), b.get("mode") or "pay",
+                          auth.user_for(req.token), _tag(b.get("src")),
+                          b.get("heard") if b.get("heard") in tracking.HEARD else None)
+    bk = out["booking"]
+    redirect = out["payment"]["redirect"] if out["payment"] else f"/booking?ref={bk['ref']}&k={bk['access_key']}"
+    return {"booking": _public_booking(bk), "redirect": redirect}
+
+
+def _tag(src):
+    src = src if isinstance(src, dict) else {}
+    return tracking.booking_tag(src.get("source"), src.get("campaign"), src.get("referrer"))
+
+
+@route("POST", "/api/track")
+def track(req):
+    """The public pages report one visit per browser session, with where the visitor came from."""
+    b = req.body
+    tracking.record(b.get("vid"), b.get("source"), b.get("medium"), b.get("campaign"), b.get("referrer"),
+                    b.get("path"), req.ip)
+    return {"ok": True}
+
+
+@route("GET", "/api/offer")
+def get_offer(req):
+    """Is the visitor's number verified, and do they still have the first-booking discount?"""
+    u = auth.user_for(req.token)
+    if not u or u.get("role"):
+        return {"verified": False, "pct": 0, "offer_pct": config.FIRST_BOOKING_DISCOUNT_PCT}
+    return {"verified": True, "name": u["name"], "phone": u["phone"], "email": u["email"],
+            "pct": bookings.first_booking_pct(u["phone"], u), "offer_pct": config.FIRST_BOOKING_DISCOUNT_PCT}
+
+
+@route("POST", "/api/booking/pay")
+def pay_by_link(req):
+    """Pay online for a reservation (or a pay-at-venue booking) from its booking link."""
+    b = bookings.by_key(req.body.get("ref"), req.body.get("k"))
+    if not b:
+        raise HttpError(404, "Booking not found")
+    return {"redirect": bookings.start_payment(b)["redirect"]}
 
 
 @route("GET", "/api/booking")
@@ -161,8 +221,11 @@ def pay_complete(req):
 def pay_cancel(req):
     p = _payment(req, req.body)
     if p["status"] != "paid" and p["kind"] == "booking":
+        b = bookings.get(p["ref_id"])
+        if b["status"] != "pending":  # a reservation or pay-at-venue booking: it stays, just unpaid
+            return {"redirect": f"/booking?ref={b['ref']}&k={b['access_key']}"}
         bookings.release_hold(p["ref_id"])
-        return {"redirect": "/?cancelled=1"}
+        return {"redirect": "/book?cancelled=1"}
     return {"redirect": _after_payment(p) if p["status"] == "paid" else "/portal"}
 
 
@@ -194,9 +257,11 @@ def _fulfil(p):
 
 def _public_booking(b, with_quote=False):
     keep = ("id", "ref", "court_id", "court_name", "sport", "name", "start", "end", "amount", "status", "hold_until",
-            "pay_status", "refund_amount", "cancelled_by", "phone", "email")
+            "pay_status", "refund_amount", "cancelled_by", "phone", "email", "discount")
     out = {k: b.get(k) for k in keep}
     out["phone"] = out["phone"] and "******" + out["phone"][-4:]
+    if b["status"] == "reserved" and b["hold_until"]:
+        out["hold_seconds"] = max(0, int((clock.parse(b["hold_until"]) - clock.now()).total_seconds()))
     if with_quote:
         out["cancel"] = bookings.refund_quote(b, "customer")
     d = db.one("SELECT valid_from, valid_to, status FROM door_codes WHERE booking_id=?", b["id"])
@@ -221,7 +286,8 @@ def request_code(req):
 
 @route("POST", "/api/auth/verify")
 def verify_code(req):
-    token = auth.verify_login_code(req.body.get("phone"), req.body.get("code"), req.body.get("name"))
+    token = auth.verify_login_code(req.body.get("phone"), req.body.get("code"), req.body.get("name"),
+                                   req.body.get("ref"))
     req.set_cookie = token
     return {"ok": True}
 
@@ -265,7 +331,21 @@ def me_cancel(req, bid):
 def me_membership_order(req):
     """Buy / renew online. Returns the payment page to redirect to."""
     pay = members.order_membership(req.user["id"], req.body.get("months", 1))
-    return {"redirect": pay["redirect"], "amount": pay["amount"]}
+    return {"redirect": pay["redirect"], "amount": pay["amount"], "credit_used": pay["credit_used"]}
+
+
+@route("POST", "/api/me/referral", "user")
+def me_referral(req):
+    """A new joiner enters the member ID of the friend who referred them."""
+    return {"referred_by": members.set_referrer(req.user["id"], req.body.get("code"))}
+
+
+@route("POST", r"/api/me/bookings/(\d+)/pay", "user")
+def me_pay_booking(req, bid):
+    b = bookings.get(int(bid))
+    if not b or b["phone"] != req.user["phone"]:
+        raise HttpError(404, "Booking not found")
+    return {"redirect": bookings.start_payment(b)["redirect"]}
 
 
 # ------------------------------------------------------------------ demo helpers (DEMO_MODE only)
@@ -279,13 +359,17 @@ def _demo_only():
 def demo_info(req):
     _demo_only()
     return {"logins": [
-        {"role": "Admin / front desk", "login": config.ADMIN_PHONE, "secret": "password: " + config.ADMIN_PASSWORD,
-         "where": "/admin"},
+        {"role": "Admin (everything + analytics)", "login": config.ADMIN_PHONE,
+         "secret": "password: " + config.ADMIN_PASSWORD, "where": "/admin"},
+        {"role": "Receptionist (bookings + members)", "login": config.RECEPTION_PHONE,
+         "secret": "password: " + config.RECEPTION_PASSWORD, "where": "/admin"},
         {"role": "Member (plan ends in 7 days)", "login": auth.member_id(2) + "  or  9000000001",
          "secret": "code shown on screen", "where": "/portal"},
         {"role": "Academy player (junior)", "login": auth.member_id(5) + "  or  9000000004",
          "secret": "code shown on screen", "where": "/portal"},
-    ], "fingerprints": [{"id": "101", "who": "Aarav Mehta (member, active)"},
+        {"role": "Guest (new customer)", "login": "any new 10-digit mobile number",
+         "secret": "code shown on screen", "where": "/book"},
+    ], "lock": config.LOCK_ENABLED, "fingerprints": [{"id": "101", "who": "Aarav Mehta (member, active)"},
                         {"id": "104", "who": "Ishaan Verma (academy, fees paid)"},
                         {"id": "115", "who": "Farhan Sheikh (membership expired)"}]}
 
@@ -337,14 +421,18 @@ def lock_events(req):
 
 # ------------------------------------------------------------------ admin
 
-@route("GET", "/api/admin/overview", "admin")
+@route("GET", "/api/admin/overview", "staff")
 def overview(req):
     day = req.query.get("date") or clock.today().isoformat()
     todays = db.all_(
         "SELECT b.id,b.ref,b.court_id,c.name AS court,b.name,b.phone,b.email,b.start,b.end,b.amount,b.status,b.payment_ref,"
-        " b.pay_status,b.source, d.code, d.status AS code_status, d.valid_from, d.uses FROM bookings b "
+        " b.pay_status,b.source,b.discount,b.hold_until, d.code, d.status AS code_status, d.valid_from, d.uses FROM bookings b "
         "JOIN courts c ON c.id=b.court_id LEFT JOIN door_codes d ON d.booking_id=b.id "
-        "WHERE substr(b.start,1,10)=? AND b.status IN ('confirmed','pending') ORDER BY b.start, b.court_id", day)
+        "WHERE substr(b.start,1,10)=? AND b.status IN ('confirmed','pending','reserved') "
+        "ORDER BY b.start, b.court_id", day)
+    reserved = db.all_("SELECT b.id,b.ref,b.name,b.phone,b.start,b.end,b.amount,b.hold_until,c.name AS court "
+                       "FROM bookings b JOIN courts c ON c.id=b.court_id WHERE b.status='reserved' "
+                       "ORDER BY b.hold_until")
     soon = (clock.today() + timedelta(days=max(config.REMINDER_DAYS))).isoformat()
     today = clock.today().isoformat()
     expiring = db.all_(
@@ -362,13 +450,15 @@ def overview(req):
     unpaid = db.all_("SELECT b.id,b.ref,b.name,b.phone,b.start,b.end,b.amount,c.name AS court FROM bookings b "
                      "JOIN courts c ON c.id=b.court_id WHERE b.status='confirmed' AND b.pay_status='unpaid' "
                      "ORDER BY b.start")
+    for b in unpaid + todays:
+        b["balance"] = bookings.balance(b) if b.get("pay_status", "unpaid") == "unpaid" else 0
     refunds = db.all_(
         "SELECT p.id, p.kind, p.phone, p.provider, p.refund_amount, p.refund_status, p.refund_error, b.ref, b.name "
         "FROM payments p LEFT JOIN bookings b ON p.kind='booking' AND b.id=p.ref_id "
         "WHERE p.refund_status IN ('manual','failed','pending') ORDER BY p.id")
     return {
         "date": day, "now": clock.fmt(clock.now()), "bookings": todays, "collected": collected,
-        "expiring": expiring, "fees_due": fees_due, "unpaid": unpaid, "refunds": refunds,
+        "expiring": expiring, "fees_due": fees_due, "unpaid": unpaid, "refunds": refunds, "reserved": reserved,
         "notifications": db.all_("SELECT created_at,kind,channel,to_phone,body,status,error FROM notifications "
                                  "ORDER BY id DESC LIMIT 60"),
         "access": db.all_("SELECT a.at,a.device_id,a.method,a.granted,a.detail,u.name,b.ref FROM access_events a "
@@ -381,7 +471,8 @@ def overview(req):
 
 @route("GET", "/api/admin/analytics", "admin")
 def get_analytics(req):
-    return analytics.report(int(req.query.get("days") or 30))
+    days = int(req.query.get("days") or 30)
+    return {**analytics.report(days), "traffic": tracking.report(max(1, min(days, 366)))}
 
 
 @route("GET", "/api/admin/health", "admin")
@@ -389,26 +480,28 @@ def get_health(req):
     return {"checks": health.checks(), "now": clock.fmt(clock.now())}
 
 
-@route("GET", "/api/admin/catalog", "admin")
+@route("GET", "/api/admin/catalog", "staff")
 def catalog(req):
     return {"plans": db.all_("SELECT * FROM plans ORDER BY id"),
             "batches": db.all_("SELECT * FROM academy_batches ORDER BY id"),
             "courts": db.all_("SELECT * FROM courts ORDER BY id")}
 
 
-@route("GET", "/api/admin/people", "admin")
+@route("GET", "/api/admin/people", "staff")
 def people(req):
     q = "%" + (req.query.get("q") or "") + "%"
     rows = db.all_("SELECT id,name,phone,email,lock_user_id,lock_enabled,guardian_name,sms_opt,wa_opt FROM users "
-                   "WHERE is_admin=0 AND (name LIKE ? OR phone LIKE ?) ORDER BY name LIMIT 200", q, q)
+                   "WHERE role IS NULL AND (name LIKE ? OR phone LIKE ?) ORDER BY name LIMIT 200", q, q)
     for r in rows:
         s = members.status(r["id"])
         r["memberships"], r["academy"], r["access_until"] = s["memberships"], s["academy"], s["fingerprint"]["until"]
+        r["credit"], r["referred_by"] = s["referral"]["credit"], s["referral"]["referred_by"]
+        r["referrals"] = len(s["referral"]["friends"])
         r["member_id"] = auth.member_id(r["id"])
     return {"people": rows}
 
 
-@route("POST", "/api/admin/people", "admin")
+@route("POST", "/api/admin/people", "staff")
 def save_person(req):
     b = req.body
     uid = members.upsert_person(b.get("name"), b.get("phone"), b.get("email") or None, b.get("lock_user_id"),
@@ -416,56 +509,155 @@ def save_person(req):
     return {"id": uid}
 
 
-@route("POST", "/api/admin/memberships", "admin")
+@route("POST", "/api/admin/memberships", "staff")
 def add_membership(req):
     return {"membership": members.add_membership(int(req.body["user_id"]), int(req.body["plan_id"]),
-                                                 int(req.body.get("months", 1)), req.user["name"])}
+                                                 int(req.body.get("months", 1)), req.user["name"],
+                                                 req.body.get("method") or "cash")}
 
 
-@route("POST", "/api/admin/enroll", "admin")
+@route("POST", "/api/admin/enroll", "staff")
 def enroll(req):
     b = req.body
     return {"enrollment": members.enroll(int(b["user_id"]), int(b["batch_id"]), b.get("level"),
-                                         int(b.get("months", 1)), req.user["name"])}
+                                         int(b.get("months", 1)), req.user["name"],
+                                         b.get("method") or "cash")}
 
 
-@route("POST", "/api/admin/academy-fee", "admin")
+@route("POST", "/api/admin/academy-fee", "staff")
 def academy_fee(req):
     return {"fee_paid_until": members.pay_academy_fee(int(req.body["enrollment_id"]),
-                                                      int(req.body.get("months", 1)), req.user["name"])}
+                                                      int(req.body.get("months", 1)), req.user["name"],
+                                                      req.body.get("method") or "cash")}
 
 
-@route("POST", "/api/admin/bookings", "admin")
+@route("POST", "/api/admin/bookings", "staff")
 def desk_booking(req):
     """Booking made by staff. mode: desk_paid (cash/UPI now) | unpaid (phone reservation, pays later)
     | comp (free). All of them get a door code like any other booking."""
     b = req.body
     return {"booking": bookings.create_by_staff(b.get("court_id"), b.get("date"), b.get("start"), b.get("slots", 1),
                                                 b.get("name"), b.get("phone"), b.get("mode"), req.user["name"],
-                                                b.get("email"))}
+                                                b.get("email"), b.get("method") or "cash", b.get("received"))}
 
 
-@route("POST", r"/api/admin/bookings/(\d+)/mark-paid", "admin")
+@route("GET", "/api/admin/me", "staff")
+def staff_me(req):
+    return {"name": req.user["name"], "role": req.user["role"], "phone": req.user["phone"]}
+
+
+@route("POST", r"/api/admin/bookings/(\d+)/confirm", "staff")
+def confirm_reservation(req, bid):
+    """A held reservation is confirmed after a call: paid=true (advance received) or pay at the venue."""
+    b = req.body
+    return {"booking": bookings.confirm_reservation(int(bid), req.user["name"], bool(b.get("paid")),
+                                                    b.get("method") or "cash", b.get("advance"))}
+
+
+@route("GET", "/api/admin/daybook", "staff")
+def daybook(req):
+    """All payments taken on a day (website + cash + UPI QR + card), with totals per method."""
+    return payments.daybook(req.query.get("date") or clock.today().isoformat())
+
+
+@route("POST", "/api/admin/payments", "staff")
+def other_payment(req):
+    """Money received that isn't a court booking, membership or academy fee: racket hire, shuttles, café…"""
+    b = req.body
+    if not (b.get("note") or "").strip():
+        raise HttpError(400, "Say what the payment was for")
+    if int(b.get("amount") or 0) <= 0:
+        raise HttpError(400, "Enter the amount received")
+    return {"payment": payments.record_desk("other", None, int(b["amount"]), b.get("phone") or None, None,
+                                            req.user["name"], method=b.get("method") or "cash", note=b["note"])}
+
+
+@route("GET", "/api/admin/staff", "admin")
+def list_staff(req):
+    return {"staff": db.all_("SELECT id, name, phone, role FROM users WHERE role IS NOT NULL ORDER BY role, name")}
+
+
+@route("POST", "/api/admin/staff", "admin")
+def add_staff(req):
+    b = req.body
+    return {"id": auth.add_staff(b.get("name"), b.get("phone"), b.get("password"), b.get("role") or "reception")}
+
+
+@route("POST", r"/api/admin/staff/(\d+)/remove", "admin")
+def remove_staff(req, uid):
+    auth.remove_staff(int(uid), req.user["id"])
+    return {"ok": True}
+
+
+@route("GET", "/api/admin/export", "admin")
+def export(req):
+    """CSV downloads for the owner: bookings | payments | members | summary."""
+    what, days = req.query.get("what", "bookings"), max(1, min(int(req.query.get("days") or 30), 730))
+    since = (clock.today() - timedelta(days=days - 1)).isoformat()
+    if what == "bookings":
+        head = ["ref", "created_at", "court", "sport", "start", "end", "name", "phone", "email", "status",
+                "pay_status", "booked_via", "amount", "discount", "refund_amount", "cancelled_by",
+                "traffic_source", "heard_about_us"]
+        rows = db.all_("SELECT b.ref,b.created_at,c.name AS court,c.sport,b.start,b.end,b.name,b.phone,b.email,"
+                       "b.status,b.pay_status,b.source AS booked_via,b.amount,b.discount,b.refund_amount,"
+                       "b.cancelled_by,b.utm AS traffic_source,b.heard AS heard_about_us FROM bookings b JOIN courts c ON c.id=b.court_id WHERE b.start>=? "
+                       "ORDER BY b.start", since)
+    elif what == "payments":
+        head = ["id", "paid_at", "kind", "method", "amount", "note", "phone", "provider", "gateway_id",
+                "refund_status", "refund_amount", "refunded_at"]
+        rows = db.all_("SELECT id,paid_at,kind,COALESCE(method, CASE WHEN provider='desk' THEN 'cash' ELSE 'online' "
+                       "END) AS method,note,provider,amount,phone,payment_id AS gateway_id,refund_status,"
+                       "refund_amount,refunded_at FROM payments WHERE status='paid' AND paid_at>=? ORDER BY paid_at",
+                       since)
+    elif what == "members":
+        head = ["member_id", "name", "phone", "email", "plan", "start_date", "end_date", "status"]
+        rows = db.all_("SELECT u.id,u.name,u.phone,u.email,p.name AS plan,m.start_date,m.end_date,"
+                       "CASE WHEN m.end_date<? THEN 'expired' WHEN m.start_date>? THEN 'upcoming' ELSE 'active' END "
+                       "AS status FROM memberships m JOIN users u ON u.id=m.user_id JOIN plans p ON p.id=m.plan_id "
+                       "WHERE m.status='active' ORDER BY m.end_date DESC", clock.today().isoformat(),
+                       clock.today().isoformat())
+        for r in rows:
+            r["member_id"] = auth.member_id(r.pop("id"))
+    elif what == "summary":
+        r = analytics.report(days)
+        head = ["date", "collected", "refunded"]
+        rows = r["daily"] + [{"date": "TOTAL", "collected": r["money"]["gross"], "refunded": r["money"]["refunded"]}]
+    elif what == "sources":
+        head = ["source", "campaigns", "visitors", "bookings", "confirmed", "conversion", "revenue"]
+        rows = [{**r, "campaigns": " ".join(r["campaigns"])} for r in tracking.report(min(days, 366))["sources"]]
+    else:
+        raise HttpError(400, "Unknown export")
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=head, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+        # Stop spreadsheet apps treating customer-typed text as a formula.
+        w.writerow({k: ("'" + v if isinstance(v, str) and v and v[0] in "=+-@" else v) for k, v in r.items()})
+    name = f"netrush-{what}-{clock.today().isoformat()}.csv"
+    return Raw(("\ufeff" + buf.getvalue()).encode("utf-8"), "text/csv; charset=utf-8", name)
+
+
+@route("POST", r"/api/admin/bookings/(\d+)/mark-paid", "staff")
 def mark_paid(req, bid):
-    return {"booking": bookings.mark_paid(int(bid), req.user["name"])}
+    return {"booking": bookings.mark_paid(int(bid), req.user["name"], req.body.get("method") or "cash")}
 
 
-@route("POST", r"/api/admin/bookings/(\d+)/cancel", "admin")
+@route("POST", r"/api/admin/bookings/(\d+)/cancel", "staff")
 def cancel_booking(req, bid):
     return bookings.cancel(int(bid), "staff")
 
 
-@route("POST", r"/api/admin/refunds/(\d+)/retry", "admin")
+@route("POST", r"/api/admin/refunds/(\d+)/retry", "staff")
 def retry_refund(req, pid):
     return {"payment": payments.retry_refund(int(pid))}
 
 
-@route("POST", r"/api/admin/refunds/(\d+)/done", "admin")
+@route("POST", r"/api/admin/refunds/(\d+)/done", "staff")
 def refund_done(req, pid):
     return {"payment": payments.mark_manual_refund_done(int(pid), req.user["name"])}
 
 
-@route("POST", "/api/admin/blocks", "admin")
+@route("POST", "/api/admin/blocks", "staff")
 def add_block(req):
     b = req.body
     db.conn().execute("INSERT INTO court_blocks(court_id,date,start,end,reason) VALUES(?,?,?,?,?)",
@@ -473,7 +665,7 @@ def add_block(req):
     return {"ok": True}
 
 
-@route("POST", "/api/admin/run-reminders", "admin")
+@route("POST", "/api/admin/run-reminders", "staff")
 def run_reminders(req):
     return {"sent": [{"type": t, "name": n, "bucket": b, "result": r} for t, n, b, r in members.send_reminders()]}
 
@@ -484,7 +676,7 @@ def run_tick(req):
     return {"ok": True}
 
 
-@route("POST", "/api/admin/simulate-door", "admin")
+@route("POST", "/api/admin/simulate-door", "staff")
 def simulate_door(req):
     """Try the door without hardware: behaves exactly like the keypad / fingerprint reader calling in."""
     b = req.body
@@ -549,13 +741,18 @@ class Handler(BaseHTTPRequestHandler):
                 if who == "device":
                     if not access.check_device_signature(self.headers, raw):
                         raise HttpError(401, "Bad device signature")
-                elif who in ("user", "admin"):
+                elif who in ("user", "staff", "admin"):
                     req.user = auth.user_for(req.token)
                     if not req.user:
                         raise HttpError(401, "Please log in")
-                    if who == "admin" and not req.user["is_admin"]:
+                    if who == "staff" and req.user["role"] not in ("admin", "reception"):
                         raise HttpError(403, "Staff only")
-                return self._json(200, fn(req, *match.groups()), req.set_cookie)
+                    if who == "admin" and req.user["role"] != "admin":
+                        raise HttpError(403, "Only the admin can do this")
+                out = fn(req, *match.groups())
+                if isinstance(out, Raw):
+                    return self._raw(out)
+                return self._json(200, out, req.set_cookie)
             raise HttpError(404, "Not found")
         except HttpError as e:
             self._json(e.status, {"error": str(e)})
@@ -580,7 +777,20 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _raw(self, out):
+        self.send_response(200)
+        self.send_header("Content-Type", out.content_type)
+        self.send_header("Content-Length", str(len(out.body)))
+        self.send_header("Cache-Control", "no-store")
+        if out.filename:
+            self.send_header("Content-Disposition", f'attachment; filename="{out.filename}"')
+        self.end_headers()
+        self.wfile.write(out.body)
+
     def _static(self, path):
+        if (path == "/demo" and not config.DEMO_MODE) or \
+                (path == "/door" and not (config.DEMO_MODE and config.LOCK_ENABLED)):
+            return self.send_error(404)
         name = PAGES.get(path, path.lstrip("/"))
         f = (STATIC / name).resolve()
         if not str(f).startswith(str(STATIC.resolve())) or not f.is_file():
@@ -600,8 +810,10 @@ def main():
     srv = ThreadingHTTPServer(("0.0.0.0", config.PORT), Handler)
     srv.daemon_threads = True
     print(f"{config.FACILITY_NAME} running on http://localhost:{config.PORT}\n"
-          f"  booking  /      members  /portal      staff  /admin  (login {config.ADMIN_PHONE} / "
+          f"  landing  /   booking  /book   members  /portal   staff  /admin  (login {config.ADMIN_PHONE} / "
           f"{'<ADMIN_PASSWORD>' if config.ADMIN_PASSWORD != 'admin123' else 'admin123'})\n"
+          f"  demo={'ON' if config.DEMO_MODE else 'off'} online_pay={'on' if config.ONLINE_PAY else 'OFF'} "
+          f"lock={'on' if config.LOCK_ENABLED else 'off'}\n"
           f"  sms={config.SMS_PROVIDER} whatsapp={config.WHATSAPP_PROVIDER} lock={config.LOCK_PROVIDER} "
           f"payment={config.PAYMENT_PROVIDER}", flush=True)
     try:

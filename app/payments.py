@@ -60,8 +60,8 @@ def create_order(kind, amount, receipt, phone, user_id=None, ref_id=None, meta=N
         order_id = _razorpay("POST", "/orders", {"amount": amount * 100, "currency": "INR", "receipt": receipt})["id"]
     secret = secrets.token_urlsafe(16)
     pid = db.conn().execute(
-        "INSERT INTO payments(kind,ref_id,user_id,phone,amount,provider,order_id,status,meta,created_at,secret) "
-        "VALUES(?,?,?,?,?,?,?,'created',?,?,?)",
+        "INSERT INTO payments(kind,ref_id,user_id,phone,amount,provider,order_id,status,meta,created_at,secret,"
+        "method) VALUES(?,?,?,?,?,?,?,'created',?,?,?,'online')",
         (kind, ref_id, user_id, phone, amount, provider, order_id, json.dumps(meta or {}),
          clock.fmt(clock.now()), secret)).lastrowid
     # The browser is redirected to our payment page, which runs the gateway (or the mock one).
@@ -116,14 +116,50 @@ def capture_from_webhook(raw_body, signature):
     return get(p["id"])
 
 
-def record_desk(kind, ref_id, amount, phone, user_id=None, staff="desk", meta=None):
-    """Cash / UPI taken at the counter."""
+METHODS = ("cash", "upi", "card")
+
+
+def record_desk(kind, ref_id, amount, phone, user_id=None, staff="desk", meta=None, method="cash", note=None):
+    """Money taken by staff directly: cash, the arena's UPI QR, or the card machine."""
+    if method not in METHODS + ("credit",):
+        raise PaymentError("Choose cash, UPI or card")
+    amount = int(amount)
+    if amount < 0 or amount > 500000:
+        raise PaymentError("That amount doesn't look right")
     now = clock.fmt(clock.now())
     pid = db.conn().execute(
-        "INSERT INTO payments(kind,ref_id,user_id,phone,amount,provider,payment_id,status,meta,created_at,paid_at) "
-        "VALUES(?,?,?,?,?,'desk',?,'paid',?,?,?)",
-        (kind, ref_id, user_id, phone, amount, "DESK-" + staff, json.dumps(meta or {}), now, now)).lastrowid
+        "INSERT INTO payments(kind,ref_id,user_id,phone,amount,provider,payment_id,status,meta,created_at,paid_at,"
+        "method,note) VALUES(?,?,?,?,?,'desk',?,'paid',?,?,?,?,?)",
+        (kind, ref_id, user_id, phone, amount, "DESK-" + staff, json.dumps(meta or {}), now, now, method,
+         (note or "")[:200] or None)).lastrowid
     return get(pid)
+
+
+def paid_total(kind, ref_id):
+    return db.one("SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE kind=? AND ref_id=? AND status='paid'",
+                  kind, ref_id)["s"]
+
+
+def daybook(day):
+    """Every payment taken on one day, with totals per method: the till sheet."""
+    rows = db.all_(
+        "SELECT p.id, p.paid_at, p.kind, p.amount, p.provider, p.method, p.note, p.payment_id, p.phone, "
+        "p.refund_status, p.refund_amount, b.ref, b.name AS booking_name, c.name AS court, u.name AS user_name "
+        "FROM payments p LEFT JOIN bookings b ON p.kind='booking' AND b.id=p.ref_id "
+        "LEFT JOIN courts c ON c.id=b.court_id LEFT JOIN users u ON u.id=p.user_id "
+        "WHERE p.status='paid' AND substr(p.paid_at,1,10)=? ORDER BY p.paid_at, p.id", day)
+    totals = {"cash": 0, "upi": 0, "card": 0, "online": 0}
+    for r in rows:
+        r["method"] = r["method"] or ("online" if r["provider"] != "desk" else "cash")
+        r["by"] = r["payment_id"][5:] if r["provider"] == "desk" and (r["payment_id"] or "").startswith("DESK-") \
+            else "website"
+        r["who"] = r["booking_name"] or r["user_name"] or ""
+        if r["method"] in totals:
+            totals[r["method"]] += r["amount"]
+    refunds = db.all_("SELECT id, refund_amount, refunded_at, provider, phone FROM payments WHERE refund_status='done' "
+                      "AND substr(refunded_at,1,10)=?", day)
+    return {"date": day, "payments": rows, "totals": totals, "total": sum(totals.values()),
+            "refunds": refunds, "refunded": sum(r["refund_amount"] for r in refunds)}
 
 
 def request_refund(payment_row_id, amount):

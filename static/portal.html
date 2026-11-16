@@ -3,65 +3,75 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Member Portal</title>
+<title>My NetRush</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/brand/favicon.png">
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
 <link rel="stylesheet" href="/app.css">
 <style>
-  .plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 14px 0; }
+  .plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 14px 0; }
   .plan { text-align: left; background: var(--surface); color: var(--ink); border: 1.5px solid var(--line); border-radius: 16px;
     padding: 14px; display: block; font-weight: 500; }
   .plan b { display: block; font-size: 1.05rem; font-weight: 800; }
   .plan span { font-size: .8rem; color: var(--ink-2); }
-  .plan[aria-pressed="true"] { border-color: var(--ink); box-shadow: 0 0 0 4px color-mix(in srgb, var(--lime) 45%, transparent); }
-  .login-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 0; max-width: 900px; margin: 30px auto; border-radius: 26px;
+  .plan[aria-pressed="true"] { border-color: var(--green); box-shadow: 0 0 0 4px color-mix(in srgb, var(--sage) 45%, transparent); }
+  .login-wrap { display: grid; grid-template-columns: 1fr 1fr; max-width: 900px; margin: 30px auto; border-radius: 26px;
     overflow: hidden; box-shadow: var(--shadow-lg); background: var(--surface); border: 1px solid var(--line); }
   .login-wrap .side-art { background: var(--night); color: #fff; padding: 36px; position: relative; overflow: hidden; }
   .login-wrap .side-art::before { content: ""; position: absolute; inset: 0; opacity: .5;
     background: radial-gradient(400px 260px at 100% 0%, color-mix(in srgb, var(--lime) 40%, transparent), transparent 70%); }
   .login-wrap .side-art > * { position: relative; }
   .login-wrap .side-art li { margin: 10px 0; color: rgb(255 255 255 / .8); }
-  .login-wrap form, .login-wrap .form { padding: 36px; }
-  @media (max-width: 760px) { .login-wrap { grid-template-columns: 1fr; } .login-wrap .side-art { display: none; } }
-  .bk { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .login-wrap .form { padding: 36px; }
+  @media (max-width: 760px) { .login-wrap { grid-template-columns: 1fr; } .login-wrap .side-art { display: none; } .login-wrap .form { padding: 24px; } }
+  .bk { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   .bk:last-child { border-bottom: 0; }
   .bk .ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none;
     background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c); }
   .bk .ico svg { width: 22px; height: 22px; }
+  .refcode { display: flex; align-items: center; gap: 10px; background: var(--surface-2); border-radius: 14px; padding: 12px 14px; margin: 12px 0; }
+  .refcode code { font-size: 1.25rem; font-weight: 800; letter-spacing: .14em; }
 </style>
 </head>
 <body>
 <header class="top"><div class="wrap">
-  <a class="logo" href="/"><i></i><span id="facility">NetRush</span><small>members</small></a>
-  <nav><a href="/" class="keep">Book a court</a><a href="#" id="logout" class="cta hidden">Log out</a></nav>
+  <a class="logo" href="/"><i></i><span id="facility">NetRush</span></a>
+  <nav><a href="/book" class="keep">Book a court</a><a href="#" id="logout" class="cta hidden">Log out</a></nav>
 </div></header>
 
 <main class="wrap">
   <section id="login" class="login-wrap hidden">
     <div class="side-art">
-      <div class="eyebrow" style="color:rgb(255 255 255 / .5)">Members &amp; academy</div>
+      <div class="eyebrow" style="color:rgb(255 255 255 / .5)">Members · Academy · Guests</div>
       <h1 style="color:#fff;margin-top:8px">Your game, <span style="color:var(--lime)">one tap away.</span></h1>
       <ul style="padding-left:18px">
-        <li>See your plan, days left and door access</li>
-        <li>Renew online, ₹<span id="mprice">2,000</span> / month</li>
-        <li>Academy schedule, fees and attendance</li>
-        <li>Manage and cancel court bookings</li>
+        <li>See your membership status and days left</li>
+        <li>Join or renew online, ₹<span id="mprice">2,000</span> / month</li>
+        <li>Refer a friend, get ₹<span id="rprice">300</span> off</li>
+        <li>Pay for, manage and cancel court bookings</li>
       </ul>
     </div>
     <div class="form">
-      <h2>Log in or join</h2>
-      <p class="small muted">Use your mobile number or member ID (e.g. NR-0002). We'll send a 6-digit code.</p>
+      <h2>Log in or sign up</h2>
+      <p class="small muted">Enter your mobile number (or member ID, e.g. NR-0002). We'll send a 6-digit code. No password needed.</p>
+      <div class="demo-hint hidden" id="l-ref" style="margin-bottom:12px"></div>
       <div id="l-step1">
-        <div class="field"><label for="l-phone">Mobile number or member ID</label><input id="l-phone" autocomplete="tel" placeholder="98xxxxxxxx or NR-0002"></div>
+        <div class="field"><label for="l-phone">Mobile number or member ID</label><input id="l-phone" autocomplete="tel" placeholder="10-digit mobile or NR-0002"></div>
         <button id="l-send" class="block" style="margin-top:16px">Send code</button>
       </div>
       <div id="l-step2" class="hidden">
-        <div class="field"><label for="l-code">6-digit code (SMS / WhatsApp)</label>
+        <div class="field"><label for="l-code">6-digit code</label>
           <input id="l-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="letter-spacing:.3em;font-weight:800;font-size:1.2rem"></div>
-        <div class="field hidden" id="l-namef"><label for="l-name">Welcome! What's your name?</label><input id="l-name" autocomplete="name"></div>
+        <div id="l-new" class="hidden">
+          <div class="field"><label for="l-name">Welcome! Your name *</label><input id="l-name" autocomplete="name"></div>
+          <div class="field"><label for="l-refcode">Friend's referral code (optional)</label><input id="l-refcode" placeholder="NR-0012"></div>
+        </div>
         <div class="demo-hint hidden" id="l-demo" style="margin-top:12px"></div>
         <button id="l-verify" class="block" style="margin-top:16px">Continue</button>
         <button id="l-back" class="ghost block" style="margin-top:8px">Use a different number</button>
       </div>
       <div class="demo-hint hidden" id="l-creds" style="margin-top:18px"></div>
+      <p class="small muted hidden" id="l-off" style="margin-top:14px"></p>
     </div>
   </section>
 
@@ -71,21 +81,28 @@
 <script src="/common.js"></script>
 <script>
 let CFG, ME, pick = 1;
+const q0 = new URLSearchParams(location.search);
+if (/^nr-?\d+$/i.test(q0.get("ref") || "")) store.set("nr_ref", q0.get("ref").toUpperCase());
 
 async function load() {
   CFG = CFG || await api("/api/config");
-  demoBar(CFG);
-  $("#facility").textContent = CFG.facility; document.title = "Members · " + CFG.facility;
+  demoBar(CFG); rememberCampaign();
+  $("#facility").textContent = CFG.facility; document.title = "My " + CFG.facility;
   $("#mprice").textContent = Number(CFG.membership_monthly).toLocaleString("en-IN");
+  $("#rprice").textContent = CFG.referral_reward;
   try { render(ME = await api("/api/me")); }
   catch (e) {
     if (e.status !== 401) return toast(e.message, true);
     $("#login").classList.remove("hidden"); $("#dash").classList.add("hidden"); $("#logout").classList.add("hidden");
+    const ref = store.get("nr_ref");
+    if (ref) { $("#l-ref").classList.remove("hidden"); $("#l-refcode").value = ref;
+      $("#l-ref").innerHTML = `<b>You were invited by member ${esc(ref)}.</b> Sign up and take a membership: they get ₹${CFG.referral_reward} off, and you join the club.`; }
     if (CFG.demo) { $("#l-creds").classList.remove("hidden");
-      $("#l-creds").innerHTML = `<b>Demo:</b> member <code>NR-0002</code> · academy player <code>NR-0005</code> · or any new number to sign up.`; }
+      $("#l-creds").innerHTML = `<b>Demo:</b> member <code>NR-0002</code> · academy player <code>NR-0005</code> · or any new number to sign up as a guest.`; }
+    if (!CFG.otp) { $("#l-off").classList.remove("hidden"); $("#l-send").disabled = true;
+      $("#l-off").innerHTML = `Online login is being set up. For now, call <a href="tel:${esc(CFG.arena.phone.replace(/\s/g, ""))}"><b>${esc(CFG.arena.phone)}</b></a> for anything about your membership or booking.`; }
   }
-  const q = new URLSearchParams(location.search);
-  if (q.get("paid")) { toast("Payment received. Your membership is active."); history.replaceState(null, "", "/portal"); }
+  if (q0.get("paid")) { toast("Payment received. Thank you!"); history.replaceState(null, "", "/portal"); q0.delete("paid"); }
 }
 
 $("#l-send").onclick = async () => {
@@ -93,21 +110,21 @@ $("#l-send").onclick = async () => {
   try {
     const r = await api("/api/auth/request-code", { phone: $("#l-phone").value });
     $("#l-step1").classList.add("hidden"); $("#l-step2").classList.remove("hidden");
-    $("#l-namef").classList.toggle("hidden", !r.new);
+    $("#l-new").classList.toggle("hidden", !r.new);
     $("#l-demo").classList.toggle("hidden", !r.demo_code);
-    if (r.demo_code) $("#l-code").value = r.demo_code;
-    if (r.demo_code) $("#l-demo").innerHTML = `Demo mode, so no real SMS. Your code is <code>${r.demo_code}</code> (also on the <a href="/demo" target="_blank">demo phone</a>).`;
-    $("#l-code").focus();
-  } catch (e) { toast(e.message, true); } finally { $("#l-send").disabled = false; }
+    if (r.demo_code) { $("#l-code").value = r.demo_code;
+      $("#l-demo").innerHTML = `Demo mode, so no real SMS. Your code is <code>${r.demo_code}</code> (also on the <a href="/demo" target="_blank">demo phone</a>).`; }
+    (r.new ? $("#l-name") : $("#l-code")).focus();
+  } catch (e) { toast(e.message, true); } finally { $("#l-send").disabled = !CFG.otp; }
 };
 $("#l-back").onclick = () => { $("#l-step2").classList.add("hidden"); $("#l-step1").classList.remove("hidden"); };
 $("#l-verify").onclick = async () => {
-  try { await api("/api/auth/verify", { phone: $("#l-phone").value, code: $("#l-code").value, name: $("#l-name").value });
+  try { await api("/api/auth/verify", { phone: $("#l-phone").value, code: $("#l-code").value, name: $("#l-name").value, ref: $("#l-refcode").value });
     $("#login").classList.add("hidden"); load(); }
   catch (e) { toast(e.message, true); }
 };
 $("#l-code").addEventListener("keydown", e => e.key === "Enter" && $("#l-verify").click());
-$("#logout").onclick = async e => { e.preventDefault(); await api("/api/auth/logout", {}); location.reload(); };
+$("#logout").onclick = async e => { e.preventDefault(); await api("/api/auth/logout", {}); location.href = "/portal"; };
 
 function pillFor(state, left) {
   if (state === "expired") return `<span class="pill bad">Expired</span>`;
@@ -119,28 +136,35 @@ function pillFor(state, left) {
 
 function render(s) {
   $("#logout").classList.remove("hidden");
-  const u = s.user, fp = s.fingerprint, first = esc(u.name.split(" ")[0]);
+  const u = s.user, fp = s.fingerprint, rf = s.referral, first = esc(u.name.split(" ")[0]);
   const ends = [fp.until, ...s.memberships.map(m => m.end_date), ...s.academy.map(a => a.fee_paid_until)].filter(Boolean).sort();
   const validTo = fp.active ? ends[ends.length - 1] : null;  // includes an already-paid renewal
-  const role = [s.memberships.length && "Member", s.academy.length && "Academy player"].filter(Boolean).join(" · ") || "Player";
+  const isMember = s.memberships.length > 0, isAcademy = s.academy.length > 0;
+  const role = [isMember && "Member", isAcademy && "Academy player"].filter(Boolean).join(" · ") || "Guest";
+  const lapsed = (isMember || isAcademy) && !fp.active;
 
   const card = `<div class="mcard">
       <div class="row"><span class="brand"><i></i>${esc(CFG.facility)}</span><span class="spacer"></span>
-        <span class="pill ${fp.active ? "lime" : "bad"} plain">${fp.active ? "ACCESS ON" : "ACCESS OFF"}</span></div>
+        <span class="pill ${fp.active ? "lime" : isMember || isAcademy ? "bad" : ""} plain">${fp.active ? "ACTIVE" : lapsed ? "EXPIRED" : "GUEST"}</span></div>
       <div style="margin-top:14px;font-size:1.3rem;font-weight:800;letter-spacing:-.02em">${esc(u.name)}</div>
-      <div class="tiny" style="color:rgb(255 255 255 / .6)">${role}${u.guardian_name ? " · Guardian: " + esc(u.guardian_name) : ""}</div>
+      <div class="tiny" style="color:rgb(255 255 255 / .6)">${role}${u.guardian_name ? " · Guardian: " + esc(u.guardian_name) : ""} · ${esc(u.phone)}</div>
       <div class="id">${esc(u.member_id)}</div>
-      <div class="meta"><div>Valid until<b>${validTo ? niceDate(validTo) : "—"}</b></div>
-        <div>Fingerprint<b>${fp.enrolled ? "Enrolled" : "Not yet"}</b></div></div>
+      <div class="meta"><div>${isMember || isAcademy ? "Valid until" : "Membership"}<b>${validTo ? niceDate(validTo) : isMember || isAcademy ? "Expired" : "Not a member yet"}</b></div>
+        ${rf.credit ? `<div>Referral credit<b>${rupees(rf.credit)}</b></div>` : ""}
+        ${CFG.lock ? `<div>Fingerprint<b>${fp.enrolled ? "Enrolled" : "Not yet"}</b></div>` : ""}</div>
     </div>`;
 
-  const access = `<div class="card">
-      <div class="eyebrow">Door access</div>
-      ${!fp.enrolled ? `<h3 style="margin-top:6px">Register your fingerprint</h3><p class="small muted">Visit the front desk once. It takes 30 seconds, then the door opens with your finger.</p>`
-        : fp.active ? `<h3 style="margin-top:6px">Fingerprint entry active</h3><p class="small muted">Scan your finger at the entrance. Works until <b>${niceDate(fp.until)}</b>.</p>`
-        : `<h3 style="margin-top:6px">Door access paused</h3><p class="small muted">Your plan or academy fees have lapsed. Renew below and your fingerprint works again straight away.</p>`}
+  const statusCard = `<div class="card">
+      <div class="eyebrow">${CFG.lock ? "Door access" : "Your status"}</div>
+      ${CFG.lock ? (!fp.enrolled ? `<h3 style="margin-top:6px">Register your fingerprint</h3><p class="small muted">Visit the front desk once. It takes 30 seconds.</p>`
+          : fp.active ? `<h3 style="margin-top:6px">Fingerprint entry active</h3><p class="small muted">Works until <b>${niceDate(fp.until)}</b>.</p>`
+          : `<h3 style="margin-top:6px">Door access paused</h3><p class="small muted">Renew and your fingerprint works again straight away.</p>`)
+        : fp.active ? `<h3 style="margin-top:6px">You're all set</h3><p class="small muted">Your ${isMember ? "membership" : "academy enrolment"} is active until <b>${niceDate(validTo)}</b>. Show your member ID <b>${esc(u.member_id)}</b> at the reception.</p>`
+        : lapsed ? `<h3 style="margin-top:6px">Your plan has ended</h3><p class="small muted">Renew below to keep playing on your membership.</p>`
+        : `<h3 style="margin-top:6px">Playing as a guest</h3><p class="small muted">Book any court, pay per hour. Or take a membership below and play all month.</p>`}
       <div class="divider"></div>
-      <div class="row small"><span class="muted">Days at the arena (30 days)</span><span class="spacer"></span><b class="num" style="font-size:1.3rem">${s.days_attended_30d}</b></div>
+      <div class="row small"><span class="muted">${CFG.lock ? "Days at the arena (30 days)" : "Upcoming bookings"}</span><span class="spacer"></span>
+        <b class="num" style="font-size:1.3rem">${CFG.lock ? s.days_attended_30d : s.upcoming_bookings.length}</b></div>
     </div>`;
 
   const memList = s.memberships.map(m => {
@@ -151,16 +175,34 @@ function render(s) {
       <div class="meter ${m.state === "expired" ? "bad" : m.state === "expiring" ? "warn" : ""}"><i style="width:${pct}%"></i></div></div>`;
   }).join("");
 
-  const o = s.membership_offer;
+  const o = s.membership_offer, total = o.monthly * pick, credit = Math.min(rf.credit, total), due = total - credit;
   const buy = `<div class="card">
-      <div class="eyebrow">${s.memberships.length ? "Renew online" : "Become a member"}</div>
-      <h3 style="margin-top:6px">${esc(o.plan.replace(" (online)", ""))}: all courts, fingerprint entry</h3>
+      <div class="eyebrow">${isMember ? "Renew online" : "Become a member"}</div>
+      <h3 style="margin-top:6px">${esc(o.plan.replace(" (online)", ""))}: all courts, all month</h3>
       ${memList}
       <div class="plans">${o.months.map(n => `<button class="plan" data-m="${n}" aria-pressed="${n === pick}">
         <b>${n} month${n > 1 ? "s" : ""}</b><span>${rupees(o.monthly * n)}</span></button>`).join("")}</div>
-      <p class="small muted">${s.memberships.length ? `Starts ${niceDate(o.starts)}, the day after your current plan ends, so you lose no days.` : `Starts today, ${niceDate(o.starts)}.`}</p>
-      <button class="lime block" id="buy">Pay ${rupees(o.monthly * pick)} →</button>
+      ${credit ? `<div class="demo-hint" style="margin-bottom:10px"><b>Referral credit applied: − ${rupees(credit)}</b>${rf.credit > credit ? ` (${rupees(rf.credit - credit)} stays for next time)` : ""}</div>` : ""}
+      <p class="small muted">${isMember ? `Starts ${niceDate(o.starts)}, the day after your current plan ends, so you lose no days.` : `Starts today, ${niceDate(o.starts)}.`}</p>
+      ${rf.can_enter_code ? `<div class="row" style="flex-wrap:nowrap;margin-bottom:12px"><input id="rc" placeholder="Friend's referral code, e.g. NR-0012" value="${esc(store.get("nr_ref") || "")}"><button class="ghost sm" id="rc-go">Apply</button></div>`
+        : rf.referred_by && !isMember ? `<p class="small" style="color:var(--ok)"><b>✓ Referred by ${esc(rf.referred_by)}.</b> They get ₹${rf.reward} off when you join.</p>` : ""}
+      ${CFG.online_pay || !due ? `<button class="lime block" id="buy">${due ? `Pay ${rupees(due)} →` : "Activate with referral credit →"}</button>`
+        : `<div class="demo-hint">Online payment opens soon. To join or renew now, pay at the reception or call <a href="tel:${esc(CFG.arena.phone.replace(/\s/g, ""))}"><b>${esc(CFG.arena.phone)}</b></a>.</div>`}
     </div>`;
+
+  const refer = rf.can_share ? `<div class="card">
+      <div class="eyebrow">Refer a friend</div>
+      <h3 style="margin-top:6px">Give a friend NetRush, get ${rupees(rf.reward)} off</h3>
+      <p class="small muted">When a friend signs up with your code and takes their first membership, ${rupees(rf.reward)} comes off your next month. No limit on friends.</p>
+      <div class="refcode"><div><div class="tiny faint">Your code</div><code>${esc(rf.code)}</code></div><span class="spacer"></span>
+        <button class="sm ghost" id="rf-copy">Copy link</button>
+        <a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(`Join me at NetRush! Sign up with my code ${rf.code}: ${rf.link}`)}">Share on WhatsApp</a></div>
+      <div class="stats4"><div class="stat"><span class="label">Friends invited</span><b>${rf.friends.length}</b></div>
+        <div class="stat"><span class="label">Earned so far</span><b>${rupees(rf.earned)}</b></div>
+        <div class="stat"><span class="label">Credit to use</span><b>${rupees(rf.credit)}</b></div></div>
+      ${rf.friends.length ? `<div class="divider"></div>${rf.friends.map(f => `<div class="row small" style="padding:4px 0"><span>${esc(f.name)}</span><span class="spacer"></span>
+        ${f.joined ? `<span class="pill ok">joined · ${rupees(rf.reward)} earned</span>` : `<span class="pill">signed up, no membership yet</span>`}</div>`).join("")}` : ""}
+    </div>` : "";
 
   const acad = s.academy.map(a => `<div class="card">
       <div class="eyebrow">Academy</div>
@@ -169,45 +211,55 @@ function render(s) {
       <dl class="kv" style="margin-top:12px"><dt>Days</dt><dd>${esc(a.days)}</dd><dt>Time</dt><dd>${a.start_time}–${a.end_time}</dd>
         ${a.coach ? `<dt>Coach</dt><dd>${esc(a.coach)}</dd>` : ""}${a.level ? `<dt>Level</dt><dd>${esc(a.level)}</dd>` : ""}
         <dt>Fees</dt><dd>${rupees(a.monthly_fee)}/month · paid to ${niceDate(a.fee_paid_until)}</dd></dl>
-      <div class="stats4" style="margin-top:16px">
+      ${CFG.lock ? `<div class="stats4" style="margin-top:16px">
         <div class="stat"><span class="label">Attended</span><b>${s.days_attended_30d}</b><span class="sub">days, last 30</span></div>
-        <div class="stat"><span class="label">Scheduled</span><b>${a.sessions_30d}</b><span class="sub">sessions</span></div>
-      </div>
-      <div class="meter"><i style="width:${Math.min(100, a.sessions_30d ? 100 * s.days_attended_30d / a.sessions_30d : 0)}%"></i></div>
+        <div class="stat"><span class="label">Scheduled</span><b>${a.sessions_30d}</b><span class="sub">sessions</span></div></div>` : ""}
     </div>`).join("");
 
-  const bk = `<div class="card"><div class="section-head"><h2>Your bookings</h2><span class="spacer"></span><a class="btn ghost sm" href="/">Book a court</a></div>
+  const bk = `<div class="card"><div class="section-head"><h2>Your bookings</h2><span class="spacer"></span><a class="btn ghost sm" href="/book">Book a court</a></div>
       ${s.upcoming_bookings.length ? s.upcoming_bookings.map(b => {
-        const sport = b.court.split(" ")[0].toLowerCase();
+        const sport = b.court.split(" ")[0].toLowerCase(), held = b.status === "reserved";
         return `<div class="bk" style="--c:var(--${sport})"><span class="ico">${SPORT_ICON[sport] || ""}</span>
-          <div><b>${esc(b.court)}</b><div class="small muted">${niceDate(b.start)} · ${hhmm(b.start)}–${hhmm(b.end)} · ${b.ref}</div></div>
-          <span class="spacer"></span>${b.cancel.can_cancel ? `<button class="danger sm" data-cancel="${b.id}" data-note="${esc(b.cancel.note)}">Cancel</button>` : ""}</div>`;
+          <div><b>${esc(b.court)}</b> ${held ? `<span class="pill warn">confirm by ${hhmm(b.hold_until)}</span>` : b.balance ? `<span class="pill warn">${rupees(b.balance)} to pay</span>` : `<span class="pill ok">paid</span>`}
+            <div class="small muted">${niceDate(b.start)} · ${hhmm(b.start)}–${hhmm(b.end)} · ${b.ref}</div></div>
+          <span class="spacer"></span>
+          ${b.balance && CFG.online_pay ? `<button class="sm" data-pay="${b.id}">Pay ${rupees(b.balance)}</button>` : ""}
+          ${b.cancel.can_cancel ? `<button class="danger sm" data-cancel="${b.id}" data-note="${esc(b.cancel.note)}">Cancel</button>` : ""}</div>`;
       }).join("") : `<div class="empty">No upcoming bookings.</div>`}
       <p class="tiny faint" style="margin:10px 0 0">${esc(s.refund_policy)}</p></div>`;
 
-  const ent = `<div class="card"><h2>Recent entries</h2>${s.recent_entries.length ? `<table><tbody>
+  const ent = CFG.lock ? `<div class="card"><h2>Recent entries</h2>${s.recent_entries.length ? `<table><tbody>
       ${s.recent_entries.map(e => `<tr><td>${niceDate(e.at)} <span class="faint">${hhmm(e.at)}</span></td><td class="muted">${esc(e.method)}</td>
         <td style="text-align:right">${e.granted ? `<span class="pill ok">Entered</span>` : `<span class="pill bad">Denied</span>`}</td></tr>`).join("")}
-    </tbody></table>` : `<div class="empty">No entries yet.</div>`}</div>`;
+    </tbody></table>` : `<div class="empty">No entries yet.</div>`}</div>` : "";
 
   const prefs = `<div class="card"><h2>Reminders</h2>
     <p class="small muted">We remind you 7 days before your plan ends and again on the last day.</p>
     <label class="check"><input type="checkbox" id="p-sms" ${u.sms_opt ? "checked" : ""}> SMS</label>
     <label class="check"><input type="checkbox" id="p-wa" ${u.wa_opt ? "checked" : ""}> WhatsApp</label></div>`;
 
+  const cards = [buy, bk, acad, refer, ent, prefs].filter(Boolean);
+  let grid = ""; for (let i = 0; i < cards.length; i += 2) grid += `<div class="grid2">${cards[i]}${cards[i + 1] || ""}</div>`;
   $("#dash").innerHTML = `
-    <div class="page-head"><div><div class="eyebrow">Welcome back</div><h1 style="margin-top:4px">Hi ${first} 👋</h1></div></div>
-    <div class="grid2">${card}${access}</div>
-    <div class="grid2">${buy}${acad || bk}</div>
-    <div class="grid2">${acad ? bk : ent}${acad ? ent : prefs}</div>
-    ${acad ? `<div class="grid2">${prefs}</div>` : ""}`;
+    <div class="page-head"><div><div class="eyebrow">Welcome${isMember || isAcademy ? " back" : ""}</div><h1 style="margin-top:4px">Hi ${first} 👋</h1></div></div>
+    <div class="grid2">${card}${statusCard}</div>${grid}`;
   $("#dash").classList.remove("hidden");
 
   $$(".plan").forEach(b => b.onclick = () => { pick = +b.dataset.m; render(ME); });
-  $("#buy").onclick = async () => {
+  if ($("#buy")) $("#buy").onclick = async () => {
     try { const r = await api("/api/me/membership/order", { months: pick }); location.href = r.redirect; }
     catch (e) { toast(e.message, true); }
   };
+  if ($("#rc-go")) $("#rc-go").onclick = async () => {
+    try { const r = await api("/api/me/referral", { code: $("#rc").value }); toast(`Referral saved: ${r.referred_by}`); load(); }
+    catch (e) { toast(e.message, true); }
+  };
+  if ($("#rf-copy")) $("#rf-copy").onclick = async () => {
+    try { await navigator.clipboard.writeText(rf.link); toast("Referral link copied"); } catch (e) { prompt("Copy your referral link:", rf.link); }
+  };
+  $$("[data-pay]").forEach(b => b.onclick = async () => {
+    try { const r = await api(`/api/me/bookings/${b.dataset.pay}/pay`, {}); location.href = r.redirect; } catch (e) { toast(e.message, true); }
+  });
   $$("[data-cancel]").forEach(b => b.onclick = async () => {
     if (!confirm(`Cancel this booking? ${b.dataset.note}.`)) return;
     try { const r = await api(`/api/me/bookings/${b.dataset.cancel}/cancel`, {});

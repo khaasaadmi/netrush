@@ -3,19 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Your Booking</title>
+<title>Your Booking · NetRush</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/brand/favicon.png">
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
 <link rel="stylesheet" href="/app.css">
 <style>
   .tick { width: 64px; height: 64px; border-radius: 50%; background: var(--lime); color: var(--lime-ink); display: grid;
     place-items: center; margin-bottom: 14px; box-shadow: 0 10px 30px color-mix(in srgb, var(--lime) 55%, transparent);
     animation: pop .4s cubic-bezier(.2, 1.4, .4, 1); }
   .tick.bad { background: var(--surface-3); color: var(--ink-2); box-shadow: none; }
+  .tick.wait { background: color-mix(in srgb, var(--warn) 22%, var(--surface)); color: var(--warn); box-shadow: none; }
   .tick svg { width: 30px; height: 30px; }
   @keyframes pop { from { transform: scale(.4); opacity: 0; } }
-  .doorcard { background: var(--night); color: #fff; border-radius: 20px; padding: 20px; position: relative; overflow: hidden; }
-  .doorcard::after { content: ""; position: absolute; right: -40px; top: -40px; width: 160px; height: 160px; border-radius: 50%;
+  .dark { background: var(--night); color: #fff; border-radius: 20px; padding: 20px; position: relative; overflow: hidden; }
+  .dark::after { content: ""; position: absolute; right: -40px; top: -40px; width: 160px; height: 160px; border-radius: 50%;
     background: radial-gradient(circle, color-mix(in srgb, var(--lime) 45%, transparent), transparent 70%); }
-  .doorcard .muted { color: rgb(255 255 255 / .65); }
+  .dark > * { position: relative; z-index: 1; }
+  .dark .muted { color: rgb(255 255 255 / .68); }
+  .dark .btn.ghost { background: transparent; color: #fff; border-color: rgb(255 255 255 / .25); }
+  .count { font-size: 2rem; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--lime); }
   .dots { display: flex; gap: 8px; margin: 12px 0; }
   .dots i { width: 36px; height: 44px; border-radius: 10px; background: rgb(255 255 255 / .08); border: 1px solid rgb(255 255 255 / .14);
     display: grid; place-items: center; font-style: normal; font-weight: 800; color: var(--lime); font-size: 1.2rem; }
@@ -24,7 +31,7 @@
 <body>
 <header class="top"><div class="wrap">
   <a class="logo" href="/"><i></i><span id="facility">NetRush</span></a>
-  <nav><a href="/" class="cta">Book another court</a></nav>
+  <nav><a href="/book" class="cta">Book another court</a></nav>
 </div></header>
 <main class="wrap"><div class="center-card stack" id="root"><div class="card empty">Loading your booking…</div></div></main>
 
@@ -33,63 +40,103 @@
 const q = new URLSearchParams(location.search), REF = q.get("ref"), K = q.get("k");
 const CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
 const CROSS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
-let CFG;
+const CLOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;
+let CFG, POLICY, timer;
 
 async function load() {
   CFG = await api("/api/config"); demoBar(CFG);
   $("#facility").textContent = CFG.facility;
   let r;
   try { r = await api(`/api/booking?ref=${encodeURIComponent(REF)}&k=${encodeURIComponent(K)}`); }
-  catch (e) { $("#root").innerHTML = `<div class="card"><h2>Booking not found</h2><p class="muted">Check the link in your confirmation SMS, or use <a href="/">Find my booking</a>.</p></div>`; return; }
-  render(r.booking, r.refund_policy);
+  catch (e) { $("#root").innerHTML = `<div class="card"><h2>Booking not found</h2><p class="muted">Check the link in your confirmation message, or <a href="/portal">log in with your mobile number</a> to see your bookings.</p></div>`; return; }
+  POLICY = r.refund_policy; render(r.booking);
 }
 
-function render(b, policy) {
+function render(b) {
+  clearInterval(timer);
   document.title = `Booking ${b.ref} · ${CFG.facility}`;
+  const first = esc(b.name.split(" ")[0]), tel = CFG.arena.phone.replace(/\s/g, "");
   const when = `${niceDate(b.start)}, ${hhmm(b.start)}–${hhmm(b.end)}`;
-  const ok = b.status === "confirmed";
-  const head = ok
-    ? `<div class="tick">${CHECK}</div><div class="eyebrow">Payment received</div><h1 style="margin-top:6px">You're booked, ${esc(b.name.split(" ")[0])}!</h1>
-       <p class="muted">Confirmation sent by SMS &amp; WhatsApp to ${esc(b.phone)}${b.email ? " and " + esc(b.email) : ""}.</p>`
+  const ok = b.status === "confirmed", held = b.status === "reserved", owes = b.pay_status === "unpaid";
+
+  const head = ok && !owes
+    ? `<div class="tick">${CHECK}</div><div class="eyebrow">Payment received</div><h1 style="margin-top:6px">You're booked, ${first}!</h1>
+       <p class="muted">Confirmation sent to ${esc(b.phone)}${b.email ? " and " + esc(b.email) : ""}.</p>`
+    : ok
+    ? `<div class="tick">${CHECK}</div><div class="eyebrow">Confirmed · pay at the venue</div><h1 style="margin-top:6px">You're booked, ${first}!</h1>
+       <p class="muted">Your slot is confirmed. Pay ${rupees(b.amount)} at the reception when you arrive${CFG.online_pay ? ", or pay online now" : ""}.</p>`
+    : held
+    ? `<div class="tick wait">${CLOCK}</div><div class="eyebrow">Reserved · not yet confirmed</div><h1 style="margin-top:6px">We're holding your slot, ${first}</h1>
+       <p class="muted">Confirm it before the timer runs out, or it goes back on sale.</p>`
     : b.status === "cancelled"
     ? `<div class="tick bad">${CROSS}</div><h1>Booking cancelled</h1>
-       <p class="muted">${b.refund_amount ? `${rupees(b.refund_amount)} ${b.refund_status === "done" ? "has been refunded" : "is being refunded"} to how you paid.` : "No refund was due for this booking."}
-       ${b.cancelled_by === "system" ? " Someone else paid for this slot after your hold expired." : ""}</p>`
-    : `<div class="tick bad">${CROSS}</div><h1>Payment not completed</h1><p class="muted">This slot isn't booked. <a href="/">Pick a slot again</a>.</p>`;
+       <p class="muted">${b.refund_amount ? `${rupees(b.refund_amount)} ${b.refund_status === "done" ? "has been refunded" : "is being refunded"} to how you paid.` : "Nothing was charged, so there is nothing to refund."}
+       ${b.cancelled_by === "system" ? " Someone else confirmed this slot after your hold ran out." : ""}</p>`
+    : b.status === "expired" && b.hold_until
+    ? `<div class="tick bad">${CROSS}</div><h1>This reservation was released</h1><p class="muted">It wasn't confirmed in time, so the slot went back on sale. <a href="/book">Pick a slot again</a>.</p>`
+    : `<div class="tick bad">${CROSS}</div><h1>Payment not completed</h1><p class="muted">This slot isn't booked. <a href="/book">Pick a slot again</a>.</p>`;
+
+  const hold = held ? `<div class="dark">
+      <div class="eyebrow" style="color:rgb(255 255 255 / .55)">Time left to confirm</div>
+      <div class="count" id="count">—</div>
+      <p style="margin:6px 0 0">Held until <b>${hhmm(b.hold_until)}</b> on ${niceDate(b.hold_until)}. ${CFG.online_pay ? "Two ways to confirm:" : "Call us to confirm:"}</p>
+      <div class="row" style="margin-top:14px">
+        ${CFG.online_pay ? `<button class="lime" data-pay>Pay ${rupees(b.amount)} online →</button>` : ""}
+        <a class="btn ghost" href="tel:${esc(tel)}">Call ${esc(CFG.arena.phone)}</a></div>
+      <p class="muted small" style="margin:12px 0 0">On the call you can pay an advance, or ask the desk to confirm it as pay-at-venue.</p>
+    </div>` : "";
+
+  const payLater = ok && owes && CFG.online_pay ? `<div class="card flat"><div class="row"><div><h3 style="margin:0">Skip the queue</h3>
+      <p class="small muted" style="margin:4px 0 0">Pay now and just walk in.</p></div><span class="spacer"></span>
+      <button class="sm" data-pay>Pay ${rupees(b.amount)} online</button></div></div>` : "";
+
+  const door = ok && CFG.lock && b.door_code ? `<div class="dark">
+      <div class="eyebrow" style="color:rgb(255 255 255 / .55)">Your door code</div>
+      <div class="dots">${"••••••".split("").map(() => "<i>•</i>").join("")}</div>
+      <p style="margin:0">Sent to your phone by <b>SMS &amp; WhatsApp</b>. Type it on the keypad at the entrance.</p>
+      <p class="muted small" style="margin:8px 0 0">Works ${niceDate(b.door_code.valid_from)} ${hhmm(b.door_code.valid_from)}–${hhmm(b.door_code.valid_to)}.</p>
+    </div>` : "";
 
   const details = `<div class="card">
       <dl class="kv">
         <dt>Reference</dt><dd><code class="big">${esc(b.ref)}</code></dd>
         <dt>Court</dt><dd>${esc(b.court_name)}</dd>
         <dt>When</dt><dd>${when}</dd>
-        <dt>Paid</dt><dd>${rupees(b.amount)}</dd>
+        ${b.discount ? `<dt>First-booking discount</dt><dd style="color:var(--ok)">− ${rupees(b.discount)}</dd>` : ""}
+        <dt>${owes ? "To pay" : "Paid"}</dt><dd>${rupees(b.amount)}</dd>
       </dl></div>`;
 
-  const door = ok && b.door_code ? `<div class="doorcard">
-      <div class="eyebrow" style="color:rgb(255 255 255 / .55)">Your door code</div>
-      <div class="dots">${"••••••".split("").map(() => "<i>•</i>").join("")}</div>
-      <p style="margin:0">Sent to your phone by <b>SMS &amp; WhatsApp</b>. Type it on the keypad at the entrance.</p>
-      <p class="muted small" style="margin:8px 0 0">Works ${niceDate(b.door_code.valid_from)} ${hhmm(b.door_code.valid_from)}–${hhmm(b.door_code.valid_to)}, as often as you need. We'll resend it ${CFG.door_code_lead_min} min before you play.</p>
-      ${CFG.demo ? `<a class="btn lime sm" style="margin-top:14px" href="/demo" target="_blank">Open the demo phone to see it →</a>` : ""}
-    </div>` : "";
+  const how = ok ? `<div class="card"><h3>On the day</h3><ol class="steps small">
+      <li>Arrive about 10 minutes early.</li>
+      ${CFG.lock ? `<li>Enter your 6-digit code on the door keypad to walk in.</li>` : `<li>Show this page or your confirmation message at the reception. Reference <b>${esc(b.ref)}</b>.</li>`}
+      <li>${owes ? `Pay ${rupees(b.amount)} at the reception before you play.` : "Head to your court and enjoy the game."}</li></ol>
+      <p class="small muted" style="margin:6px 0 0">${esc(CFG.arena.address)}${CFG.arena.maps ? ` · <a href="${esc(CFG.arena.maps)}" target="_blank" rel="noopener">Directions</a>` : ""}</p></div>` : "";
 
-  const how = ok ? `<div class="card"><h3>At the arena</h3><ol class="steps small">
-      <li>Arrive up to ${CFG.door_code_lead_min} minutes early.</li>
-      <li>Enter your 6-digit code on the door keypad. It opens. No need to see the desk.</li>
-      <li>Step out and back in as often as you like until your slot ends.</li></ol>
-      ${CFG.demo ? `<a class="btn ghost sm" href="/door" target="_blank">Try the door keypad (demo)</a>` : ""}</div>` : "";
-
-  const cancel = ok && b.cancel.can_cancel ? `<div class="card flat">
+  const cancel = (ok || held) && b.cancel.can_cancel ? `<div class="card flat">
       <div class="row"><div><h3 style="margin:0">Need to cancel?</h3><p class="small muted" style="margin:4px 0 0">If you cancel now: ${esc(b.cancel.note)}.</p></div>
-      <span class="spacer"></span><button class="danger sm" id="cancel">Cancel booking</button></div>
-      <p class="tiny faint" style="margin:10px 0 0">${esc(policy)}</p></div>` : "";
+      <span class="spacer"></span><button class="danger sm" id="cancel">Cancel ${held ? "reservation" : "booking"}</button></div>
+      ${owes ? "" : `<p class="tiny faint" style="margin:10px 0 0">${esc(POLICY)}</p>`}</div>` : "";
 
-  $("#root").innerHTML = `<div>${head}</div>${door}${details}${how}${cancel}`;
+  $("#root").innerHTML = `<div>${head}</div>${hold}${door}${details}${payLater}${how}${cancel}
+    <p class="tiny faint">Keep this page's link: it is how you manage this booking.</p>`;
+
+  if (held) {
+    let left = b.hold_seconds;
+    const tick = () => {
+      if (left <= 0) { clearInterval(timer); return load(); }
+      const h = Math.floor(left / 3600), m = Math.floor(left % 3600 / 60), s = left % 60;
+      $("#count").textContent = `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`; left--;
+    };
+    tick(); timer = setInterval(tick, 1000);
+  }
+  $$("[data-pay]").forEach(btn => btn.onclick = async () => {
+    try { const r = await api("/api/booking/pay", { ref: REF, k: K }); location.href = r.redirect; } catch (e) { toast(e.message, true); }
+  });
   const c = $("#cancel");
   if (c) c.onclick = async () => {
-    if (!confirm(`Cancel booking ${b.ref}? ${b.cancel.note}.`)) return;
-    try { const r = await api("/api/booking/cancel", { ref: REF, k: K }); render(r.booking, policy);
-      toast(r.refund.amount ? `Cancelled. ${rupees(r.refund.amount)} refund on its way.` : "Booking cancelled."); }
+    if (!confirm(`Cancel ${b.ref}? ${b.cancel.note}.`)) return;
+    try { const r = await api("/api/booking/cancel", { ref: REF, k: K }); render(r.booking);
+      toast(r.refund.amount ? `Cancelled. ${rupees(r.refund.amount)} refund on its way.` : "Cancelled."); }
     catch (e) { toast(e.message, true); }
   };
 }

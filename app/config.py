@@ -223,6 +223,20 @@ PRICES = {sport: p * SLOT_MIN // 60 for sport, p in PRICES_PER_HOUR.items()}
 ONLINE_MEMBERSHIP_MONTHLY = env_int("ONLINE_MEMBERSHIP_MONTHLY", 2000)
 ONLINE_MEMBERSHIP_MONTH_OPTIONS = [int(x) for x in env("ONLINE_MEMBERSHIP_MONTHS", "1,3,6").split(",")]
 
+# Club membership: every sport, a fixed number of court hours per club month, each hour its own 6-digit
+# serial number (see app/club.py). Sold and renewed at the desk; renewable online once a price is set.
+CLUB_HOURS = {
+    "badminton": env_int("CLUB_HOURS_BADMINTON", 26),
+    "pickleball": env_int("CLUB_HOURS_PICKLEBALL", 20),
+    "padel": env_int("CLUB_HOURS_PADEL", 7),
+}
+CLUB_PRICE_MONTHLY = env_int("CLUB_PRICE_MONTHLY", 0)       # 0 = not set: staff type the amount at the desk
+CLUB_MONTH_OPTIONS = [int(x) for x in env("CLUB_MONTHS", "1,3,6,12").split(",")]
+CLUB_RETURN_HOURS = env_int("CLUB_RETURN_HOURS", 6)         # cancel this far ahead and the hours come back
+# Face entry for club members too? Off: they enter with their booking's serial, which is what keeps each
+# sport's hours honest. Turn on only if the club wants walk-in access on top.
+CLUB_FACE_ACCESS = env("CLUB_FACE_ACCESS", "0") == "1"
+
 # Customer cancellation refunds: full refund if cancelled this many hours ahead, partial
 # (REFUND_PARTIAL_PCT) if at least REFUND_PARTIAL_HOURS ahead, nothing after that.
 # Cancelling is allowed until the slot starts. A cancellation by staff always refunds in full.

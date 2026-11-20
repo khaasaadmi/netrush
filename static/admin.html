@@ -37,6 +37,7 @@
     <button role="tab" data-tab="today" aria-selected="true"></button>
     <button role="tab" data-tab="pay" aria-selected="false"></button>
     <button role="tab" data-tab="people" aria-selected="false"></button>
+    <button role="tab" data-tab="club" aria-selected="false"></button>
     <button role="tab" data-tab="events" aria-selected="false"></button>
     <button role="tab" data-tab="analytics" aria-selected="false" data-admin></button>
     <button role="tab" data-tab="health" aria-selected="false" data-admin></button>
@@ -140,6 +141,36 @@
       <div class="card"><div class="table-scroll"><table id="p-table"></table></div></div>
     </section>
 
+    <!-- CLUB MEMBERSHIP -->
+    <section data-panel="club" class="stack hidden">
+      <div class="page-head"><div><div class="eyebrow">All sports · monthly hours</div><h1 style="margin-top:4px">Club members</h1>
+        <p class="small muted" style="margin:4px 0 0" id="cl-sub"></p></div></div>
+      <div class="grid2">
+        <div class="card"><h2>Sell or renew</h2>
+          <p class="small muted">A renewal starts the day after the current club membership ends. Every club month gets its own serial
+            numbers (one per hour, per sport); unused ones expire at the end of that month.</p>
+          <div class="grid3" style="gap:12px;align-items:end">
+            <div><label>Mobile or member ID</label><input id="cs-who" placeholder="98xxxxxxxx or NR-0012"></div>
+            <div><label>Months</label><select id="cs-months"></select></div>
+            <div><label>Amount received (₹)</label><input id="cs-amount" inputmode="numeric"></div></div>
+          <div style="margin-top:10px"><label>Paid by</label><div class="methods" id="cs-method"></div></div>
+          <p class="tiny faint" style="margin:6px 0 0">New person? Add them in People first, then create their login there.</p>
+          <button id="cs-go" style="margin-top:12px">Save club membership</button></div>
+        <div class="card"><h2>Book with club hours</h2>
+          <p class="small muted">For a club member calling or at the desk. The hours come off that sport for that club month,
+            and the entry code goes to them 10 minutes before the slot.</p>
+          <div class="grid3" style="gap:12px;align-items:end">
+            <div><label>Club member</label><select id="cb-who"></select></div>
+            <div><label>Court</label><select id="cb-court"></select></div>
+            <div><label>Day</label><input type="date" id="cb-day"></div>
+            <div><label>Start</label><select id="cb-start"></select></div>
+            <div><label>Hours</label><select id="cb-hours"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+            <div><button id="cb-go" class="block">Book</button></div></div></div>
+      </div>
+      <div class="card"><div class="table-scroll"><table id="cl-table"></table></div></div>
+      <div class="card hidden" id="cl-detail"></div>
+    </section>
+
     <!-- ANALYTICS (admin) -->
     <section data-panel="analytics" class="stack hidden">
       <div class="page-head"><div><div class="eyebrow">Business</div><h1 style="margin-top:4px">Analytics &amp; revenue</h1></div>
@@ -238,7 +269,7 @@
 <script src="/common.js"></script>
 <script>
 const A = { cfg: null, me: null, cat: null, ov: null, people: [], mode: "unpaid", days: 30, methods: {} };
-const TABS = { today: ["today", "Today"], pay: ["chart", "Payments"], people: ["people", "People"], events: ["party", "Events"], analytics: ["chart", "Analytics"],
+const TABS = { today: ["today", "Today"], pay: ["chart", "Payments"], people: ["people", "People"], club: ["club", "Club"], events: ["party", "Events"], analytics: ["chart", "Analytics"],
   health: ["pulse", "Team & health"], door: ["door", "Door"], msgs: ["chat", "Messages"] };
 $$(".side button").forEach(b => b.innerHTML = ICON[TABS[b.dataset.tab][0]] + TABS[b.dataset.tab][1]);
 const METHOD = { cash: "Cash", upi: "UPI QR", card: "Card", online: "Website", credit: "Credit" };
@@ -250,7 +281,7 @@ function methodPicker(id) {
   el.innerHTML = ["cash", "upi", "card"].map(m => `<button data-m="${m}" aria-pressed="${m === "cash"}">${METHOD[m]}</button>`).join("");
   $$("button", el).forEach(b => b.onclick = () => { A.methods[id] = b.dataset.m; $$("button", el).forEach(x => x.setAttribute("aria-pressed", x === b)); });
 }
-["w-method", "po-method", "ask-method"].forEach(methodPicker);
+["w-method", "po-method", "ask-method", "cs-method"].forEach(methodPicker);
 
 // Ask how a payment was made (and optionally how much). Resolves {method, amount} or null.
 function askPay(title, sub, amount, editable) {
@@ -297,7 +328,7 @@ $("#logout").onclick = async e => { e.preventDefault(); await api("/api/auth/log
 function openTab(tab) {
   $$(".side button").forEach(x => x.setAttribute("aria-selected", x.dataset.tab === tab));
   $$("[data-panel]").forEach(p => p.classList.toggle("hidden", p.dataset.panel !== tab));
-  ({ people: loadPeople, analytics: loadAnalytics, health: loadHealth, pay: loadDaybook, events: loadEvents }[tab] || (() => {}))();
+  ({ people: loadPeople, club: loadClub, analytics: loadAnalytics, health: loadHealth, pay: loadDaybook, events: loadEvents }[tab] || (() => {}))();
   history.replaceState(null, "", "#" + tab);
 }
 $$(".side button").forEach(b => b.onclick = () => openTab(b.dataset.tab));
@@ -310,7 +341,7 @@ $("#t-date").onchange = refresh;
 
 const payPill = b => b.status === "pending" ? `<span class="pill warn">paying now…</span>`
   : b.status === "reserved" ? `<span class="pill warn">reserved · unconfirmed</span>`
-  : b.pay_status === "paid" ? `<span class="pill ok">paid</span>` : b.pay_status === "comp" ? `<span class="pill plain">complimentary</span>`
+  : b.pay_status === "paid" ? `<span class="pill ok">paid</span>` : b.pay_status === "comp" ? `<span class="pill plain">complimentary</span>` : b.pay_status === "club" ? `<span class="pill lime">club hours</span>`
   : `<span class="pill warn">${rupees(b.balance)} to collect</span>`;
 const SRC = { online: "website", desk: "desk", phone: "phone call" };
 
@@ -525,6 +556,82 @@ async function loadPeople() {
   $$("[data-edit]").forEach(b => b.onclick = () => openForm(A.people.find(p => p.id === +b.dataset.edit)));
   $$("[data-login]").forEach(b => b.onclick = () => issueLogin(A.people.find(p => p.id === +b.dataset.login)));
 }
+
+// ---------------- club membership
+const SPORTS3 = ["badminton", "pickleball", "padel"], SNAME = { badminton: "Badminton", pickleball: "Pickleball", padel: "Padel" };
+async function loadClub() {
+  const r = await api("/api/admin/club");
+  A.club = r;
+  const h = r.hours_per_month;
+  $("#cl-sub").textContent = `Each club month: ${h.badminton} h badminton · ${h.pickleball} h pickleball · ${h.padel} h padel` +
+    (r.price_monthly ? ` · ${rupees(r.price_monthly)}/month` : " · no list price set yet, so type the amount received");
+  $("#cs-months").innerHTML = [1, 2, 3, 6, 12].map(n => `<option value="${n}">${n} month${n > 1 ? "s" : ""}</option>`).join("");
+  const setAmt = () => { if (r.price_monthly) $("#cs-amount").value = r.price_monthly * +$("#cs-months").value; };
+  $("#cs-months").onchange = setAmt; setAmt();
+  $("#cb-who").innerHTML = r.members.length ? r.members.map(m => `<option value="${m.id}">${esc(m.name)} · ${m.member_id}</option>`).join("")
+    : `<option value="">No club members yet</option>`;
+  $("#cb-court").innerHTML = A.cat.courts.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  if (!$("#cb-day").value) $("#cb-day").value = A.cfg.today;
+  $("#cb-start").innerHTML = Array.from({ length: A.cfg.close_hour - A.cfg.open_hour }, (_, i) => {
+    const t = String(A.cfg.open_hour + i).padStart(2, "0") + ":00"; return `<option>${t}</option>`; }).join("");
+  const cell = (m, sp) => { const left = m.left[sp], all = h[sp]; const low = left <= Math.ceil(all * .15);
+    return `<td class="num"><b style="${low ? "color:var(--warn)" : ""}">${left}</b><span class="faint"> / ${all}</span></td>`; };
+  $("#cl-table").innerHTML = `<thead><tr><th>Club member</th><th>Valid until</th>${SPORTS3.map(s => `<th>${SNAME[s]} left</th>`).join("")}<th></th></tr></thead><tbody>` +
+    (r.members.length ? r.members.map(m => `<tr><td class="who"><b>${esc(m.name)}</b><span><code>${m.member_id}</code> · ${m.phone}</span></td>
+      <td>${niceDate(m.until)}</td>${SPORTS3.map(s => cell(m, s)).join("")}
+      <td style="text-align:right;white-space:nowrap"><button class="sm ghost" data-cl-detail="${m.id}">Usage &amp; serials</button>
+        <button class="sm ghost" data-cl-book="${m.id}">Book</button> <button class="sm ghost" data-cl-renew="${m.phone}">Renew</button></td></tr>`).join("")
+      : `<tr><td colspan="6"><div class="empty">No club members yet. Sell the first one above.</div></td></tr>`) + "</tbody>";
+  $$("[data-cl-detail]").forEach(b => b.onclick = () => clubDetail(+b.dataset.clDetail));
+  $$("[data-cl-book]").forEach(b => b.onclick = () => { $("#cb-who").value = b.dataset.clBook; $("#cb-court").focus(); });
+  $$("[data-cl-renew]").forEach(b => b.onclick = () => { $("#cs-who").value = b.dataset.clRenew; $("#cs-amount").focus(); });
+}
+async function clubDetail(uid) {
+  const { club: c } = await api(`/api/admin/people/${uid}/club`);
+  const m = A.club.members.find(x => x.id === uid) || {};
+  const cur = c.current;
+  const pills = { free: "plain", booked: "ok", expired: "bad" };
+  $("#cl-detail").innerHTML = `<div class="section-head"><div><div class="eyebrow">Club usage</div><h2 style="margin-top:4px">${esc(m.name || "")} · ${m.member_id || ""}</h2>
+      <div class="small muted">${c.active ? `Active until ${niceDate(c.until)}` : "Not active"}${cur ? ` · this club month ${niceDate(cur.from)} → ${niceDate(cur.to)}` : ""}</div></div>
+      <span class="spacer"></span><button class="sm ghost" id="cl-close">Close</button></div>
+    ${cur ? `<div class="stats4">${SPORTS3.map(s => `<div class="stat"><span class="label">${SNAME[s]}</span><b>${cur.sports[s].left} h left</b>
+      <span class="sub">${cur.sports[s].booked} booked of ${cur.sports[s].included}</span></div>`).join("")}
+      <div class="stat"><span class="label">Total</span><b>${cur.total.left} h left</b><span class="sub">of ${cur.total.included}</span></div></div>` : ""}
+    <h3 style="margin-top:16px">Month by month</h3><div class="table-scroll"><table><thead><tr><th>Club month</th>${SPORTS3.map(s => `<th>${SNAME[s]} booked</th>`).join("")}<th>Expired unused</th><th></th></tr></thead><tbody>
+      ${c.months.map(x => `<tr><td>${niceDate(x.from)} → ${niceDate(x.to)}</td>${SPORTS3.map(s => `<td class="num">${x.sports[s].booked} / ${x.sports[s].included}</td>`).join("")}
+        <td class="num">${x.total.expired}</td><td><span class="pill ${x.state === "current" ? "lime" : "plain"}">${x.state}</span></td></tr>`).join("")}</tbody></table></div>
+    <h3 style="margin-top:16px">Club bookings</h3>${c.bookings.length ? `<div class="table-scroll"><table><tbody>${c.bookings.map(b => `<tr><td>${niceDate(b.start)} ${hhmm(b.start)}–${hhmm(b.end)}</td>
+      <td>${esc(b.court)}</td><td class="num">${b.hours} h</td><td><code>${b.ref}</code></td><td><span class="pill ${b.status === "confirmed" ? "ok" : "plain"}">${b.status}</span></td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="empty">No club bookings yet.</div>`}
+    ${c.serials ? `<h3 style="margin-top:16px">This month's serial numbers</h3>
+      <p class="tiny faint">Each one is one hour of that sport. A serial goes onto the door terminal only for its booked slot (from ${A.cfg.door_code_lead_min} min before), then is removed.</p>
+      ${SPORTS3.map(s => `<div class="small" style="margin:10px 0 4px"><b>${SNAME[s]}</b></div><div class="serials">${c.serials.filter(x => x.sport === s).map(x =>
+        `<span class="pill ${pills[x.status]}" title="${x.status}${x.ref ? " · " + x.ref + " " + x.start : ""}"><code>${x.serial}</code></span>`).join(" ")}</div>`).join("")}` : ""}`;
+  $("#cl-detail").classList.remove("hidden");
+  $("#cl-close").onclick = () => $("#cl-detail").classList.add("hidden");
+  $("#cl-detail").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+$("#cs-go").onclick = async () => {
+  const who = $("#cs-who").value.trim(), idm = who.match(/^nr-?0*(\d+)$/i);
+  try {
+    const found = (await api("/api/admin/people?q=" + encodeURIComponent(idm ? "" : who.replace(/\D/g, "").slice(-10)))).people
+      .filter(p => idm ? p.id === +idm[1] : true);
+    if (found.length !== 1) throw new Error(found.length ? "More than one person matches. Use the member ID." : "No one found. Add them in People first.");
+    const p = found[0];
+    if (!confirm(`${p.name} (${p.member_id}): club membership for ${$("#cs-months").value} month(s), ${rupees(+$("#cs-amount").value || 0)} received by ${METHOD[A.methods["cs-method"]]}?`)) return;
+    const r = await api("/api/admin/club/sell", { user_id: p.id, months: +$("#cs-months").value, amount: $("#cs-amount").value, method: A.methods["cs-method"] });
+    toast(`Saved. ${p.name}'s club membership runs ${niceDate(r.club.start_date)} → ${niceDate(r.club.end_date)}.`);
+    $("#cs-who").value = ""; loadClub(); refresh();
+  } catch (e) { toast(e.message, true); }
+};
+$("#cb-go").onclick = async () => {
+  try {
+    const r = await api("/api/admin/club/book", { user_id: +$("#cb-who").value, court_id: $("#cb-court").value, date: $("#cb-day").value,
+      start: $("#cb-start").value, slots: +$("#cb-hours").value });
+    toast(`Booked ${r.booking.court_name} ${niceDate(r.booking.start)} ${hhmm(r.booking.start)} with club hours (${r.booking.ref}).`);
+    loadClub(); refresh();
+  } catch (e) { toast(e.message, true); }
+};
 
 // Create or reset a member's login: show the temporary password once, to hand over at the desk.
 async function issueLogin(p) {

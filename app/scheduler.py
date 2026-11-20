@@ -3,7 +3,7 @@ tick, or a missed tick never double-sends or loses anything."""
 import threading
 import traceback
 
-from . import access, bookings, clock, config, db, members, payments, zkteco
+from . import access, bookings, club, clock, config, db, members, payments, zkteco
 
 TICK_SECONDS = 30
 
@@ -11,6 +11,7 @@ TICK_SECONDS = 30
 def tick():
     db.kv_set("last_tick", clock.fmt(clock.now()))  # heartbeat for the health page
     bookings.expire_holds()
+    club.expire()                   # unused club hours of a finished club month
     payments.process_refunds()      # retry any refund the gateway refused last time
     access.issue_due_codes()        # door codes going out DOOR_CODE_LEAD_MIN before each slot
     access.expire_codes()           # and removed from the lock when the slot ends

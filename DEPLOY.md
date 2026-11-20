@@ -31,6 +31,10 @@
 
 ## 2. The NetRush server on the laptop
 
+**Quickest way:** copy `deploy\windows\install.ps1` onto the laptop and run it in an Administrator PowerShell
+(`powershell -ExecutionPolicy Bypass -File install.ps1`). It installs Python, Git and cloudflared, downloads NetRush
+to `C:\netrush`, opens the settings file for you and then does steps 4–5 below. The manual way:
+
 1. Install **Python 3.12+ from python.org**, ticking "Install for all users" and "Add python.exe to PATH".
    The Microsoft Store version can't start at boot.
 2. Install **Git for Windows**, then in a terminal:
@@ -138,19 +142,55 @@ removes finished or cancelled ones, blocks or unblocks members, and reads the en
 1. **Access groups** (Menu → Access Control): group **1** with a time zone covering opening hours (who may enter),
    and group **2** with a time zone that never allows entry (lapsed members). These match `ZK_ACTIVE_GROUP=1`
    and `ZK_BLOCKED_GROUP=2`.
-2. **Members** enrol their face on the terminal once, at the desk. Note the **user ID** the terminal gives them and
+2. **Monthly members** enrol their face on the terminal once, at the desk. Note the **user ID** the terminal gives them and
    enter it in Admin → People → Edit → "User ID on the door terminal". From then on their access follows their
    membership automatically. Their face stays enrolled while they're blocked.
-3. **Guests' codes:** each code is added as a temporary user whose user ID and password are both the code. Ask the
+3. **Guests' codes and club serials:** each one is added as a temporary user whose user ID and password are
+   both the 6-digit number, 10 minutes before the slot, and deleted when the slot ends. Ask the
    installer to confirm **what a guest types at the keypad**, then put those exact words in `DOOR_KEYPAD_STEPS`
    (it is printed in the door-code message). Test it with a real booking before launch.
 4. Admin → Team & health shows a "Door terminal (ZKTeco)" row: green when the last sync worked.
+
+**Where the face data is stored:** only inside the MiniAC Plus terminal itself, in its own memory, as face templates
+made by the terminal. It never reaches the laptop, the database, the backups, Netlify, GitHub or any cloud service:
+the server only knows each member's terminal user ID and moves them between groups 1 and 2. That has two
+consequences:
+
+- If the terminal is replaced or reset, members re-enrol their face (30 seconds each). Ask the installer to back
+  up the user data with ZKTeco's own software (ZKBio / ZKAccess) or the terminal's USB download, monthly.
+- Faces are biometric personal data under India's DPDP Act. Take each member's written consent when enrolling
+  (one line on the membership form is enough), and delete their user on the terminal when they leave for good.
 
 The terminal driver uses the standard ZKTeco network protocol (port 4370) and was built and tested against a
 simulated terminal. Test it on the real terminal before relying on it: make a booking for 15 minutes ahead, wait
 until 10 minutes before, and type the code; then expire a test member and check they're blocked.
 
-## 8. Member and academy logins
+## 8. Club membership (all sports, monthly hours)
+
+A club member gets, every club month, **26 h badminton + 20 h pickleball + 7 h padel = 53 hours** (change with
+`CLUB_HOURS_*`). A club month runs from the start date to the day before the same date next month.
+
+- **Selling:** Admin → **Club** → *Sell or renew*: their mobile or member ID, months (1–12), amount received, cash /
+  UPI / card. Add the person in People first and create their login there, like any member. Set
+  `CLUB_PRICE_MONTHLY` to fill the amount in automatically and to let members renew online.
+- **Serial numbers:** at the sale, every club month gets its own serials, one per included hour, each tied to one
+  sport (12 months = 12 × 53 = 636 serials, all in the member's name). Admin → Club → *Usage & serials* lists this
+  month's serials: green = booked, grey = unused, red = expired.
+- **Booking:** the member books in their portal (netrush.in/portal → *Book with club hours*), or the desk books for
+  them (Admin → Club → *Book with club hours*). Each hour booked uses one serial of that sport for that club month;
+  when a sport's hours run out, that sport can't be booked again until the next club month.
+- **Entry:** the first serial of the booking is its door code. Like a guest code, it goes onto the terminal 10
+  minutes before the slot, is sent on the member's chosen channel, and is deleted when the slot ends. So hours of
+  one sport can't be used for another, and no serial opens the door outside a booked slot.
+- **Month end:** unused serials of a finished club month expire; the next month's serials take over.
+- **Cancelling:** at least `CLUB_RETURN_HOURS` (6) hours ahead, or by staff: the hours go back. Later: used up.
+- **Face entry** is off for club members (`CLUB_FACE_ACCESS=0`), because walking in by face would skip the hour
+  tracking. Members who also hold a monthly membership still enter by face.
+- **Everyone sees the usage:** the member in the portal (hours left per sport, month by month, their bookings);
+  reception and admin in Admin → Club. Reminders go out 7 days before and on the last day, like memberships.
+- Add the template text in step 5 (`MSG91_FLOW_MEMBERSHIP_OK`) before selling: the welcome message lists the hours.
+
+## 9. Member and academy logins
 
 Members and academy players never sign themselves up. The desk does it:
 
@@ -167,7 +207,7 @@ Members and academy players never sign themselves up. The desk does it:
 Guests don't need any of this: they book with their mobile number, and can log in with a one-time code to see
 their bookings.
 
-## 9. Event and party enquiries
+## 10. Event and party enquiries
 
 The home page has a **"Planning to hold an event?"** section with a form (full name, mobile, number of people, optional
 message). Every enquiry appears in **Admin → Events** (reception and admin), with a count of new ones on the sidebar,
@@ -182,7 +222,7 @@ set `EVENT_NOTIFY_CHANNEL=sms` and create the `MSG91_FLOW_EVENT` template above.
 - **Marketing link straight to the form:** `https://netrush.in/#event-enquiry`. Add `?utm_source=<agency>` in front
   of the `#` to credit an agency; each enquiry records where the visitor came from.
 
-## 10. Online payments (Razorpay)
+## 11. Online payments (Razorpay)
 
 Leave `PAYMENT_PROVIDER=none` until Razorpay is ready: the site then hides "Pay now" and offers
 reserve-and-pay-at-venue only. When ready, set `PAYMENT_PROVIDER=razorpay`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`,
@@ -190,7 +230,7 @@ and add a webhook (event `payment.captured`) to `https://netrush.in/api/payments
 `RAZORPAY_WEBHOOK_SECRET`. Test keys (`rzp_test_…`) take no money but still mark bookings paid, so use them only
 for a quiet test; the health page shows a red warning while they're in.
 
-## 11. Backups
+## 12. Backups
 
 The server saves a copy of the database every day into `BACKUP_DIR` and keeps 30 days. Point `BACKUP_DIR` at a
 folder that leaves the laptop, such as a Google Drive or OneDrive folder synced on that machine, or a USB drive.
@@ -205,5 +245,8 @@ To restore: stop the task, copy a backup over `data\netrush.db`, start the task.
 4. 10 minutes before the slot, the door code arrives. Type it on the terminal: the door opens.
 5. Create a login for a test member, log in with the temporary password, and set a new one. Log in as a guest
    with an SMS code and with a WhatsApp code.
-6. Turn the laptop's Wi-Fi/cable off for a minute: the pages show "briefly unavailable", and the door still
+6. Sell yourself a 1-month club membership (Admin → Club), book a padel hour in the portal, and check the hours
+   left drop from 7 to 6 and the serial arrives 10 minutes before. Then cancel a test booking more than 6 hours
+   ahead and check the hour comes back.
+7. Turn the laptop's Wi-Fi/cable off for a minute: the pages show "briefly unavailable", and the door still
    opens for a member's face. Reconnect.

@@ -68,7 +68,8 @@ USERNAME_RE = re.compile(r"^[a-z][a-z0-9._-]{2,29}$")
 def is_member_account(user_id):
     """Has this person ever had a membership or an academy place? Those log in with a password."""
     return bool(db.one("SELECT 1 AS x FROM memberships WHERE user_id=? UNION SELECT 1 FROM academy_enrollments "
-                       "WHERE user_id=? LIMIT 1", user_id, user_id))
+                       "WHERE user_id=? UNION SELECT 1 FROM club_memberships WHERE user_id=? LIMIT 1",
+                       user_id, user_id, user_id))
 
 
 def _find_member(identifier):

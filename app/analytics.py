@@ -117,7 +117,7 @@ def report(days=30):
     out = {
         "range": {"from": lo, "to": t, "days": days},
         "money": {"gross": gross, "online": online, "desk": desk, "refunded": refunded, "net": gross - refunded,
-                  "courts": by_kind["booking"], "memberships": by_kind["membership"], "academy": by_kind["academy"], "other": by_kind["other"],
+                  "courts": by_kind["booking"], "memberships": by_kind["membership"], "academy": by_kind["academy"], "club": by_kind["club"], "other": by_kind["other"],
                   "unpaid_reservations": outstanding["a"], "unpaid_count": outstanding["n"],
                   "complimentary": comp["a"], "complimentary_count": comp["n"],
                   "refunds_open": refunds_open["a"], "refunds_open_count": refunds_open["n"]},

@@ -14,11 +14,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from app import (access, analytics, auth, bookings, clock, config, db, events, firebase, health, members, notify,
+from app import (access, analytics, auth, bookings, club, clock, config, db, events, firebase, health, members, notify,
                  payments, scheduler, tracking)
 from app.auth import AuthError
 from app.bookings import BookingError
 from app.events import EventError
+from app.club import ClubError
 from app.members import MemberError
 from app.payments import PaymentError
 
@@ -221,6 +222,12 @@ def pay_info(req):
         out["detail"] = f"{clock.parse(b['start']).strftime('%a %d %b, %H:%M')}-{b['end'][11:]} · {b['name']}"
         out["hold_seconds"] = max(0, int((clock.parse(b["hold_until"]) - clock.now()).total_seconds()))             if b["hold_until"] else None
         out["booking_status"] = b["status"]
+    elif p["kind"] == "club":
+        months = json.loads(p["meta"] or "{}").get("months", 1)
+        h = config.CLUB_HOURS
+        out["title"] = "Club membership"
+        out["detail"] = (f"{months} month{'s' if months > 1 else ''} · every month {h['badminton']}h badminton, "
+                         f"{h['pickleball']}h pickleball, {h['padel']}h padel")
     else:
         months = json.loads(p["meta"] or "{}").get("months", 1)
         out["title"] = "Membership"
@@ -278,6 +285,8 @@ def _fulfil(p):
         return bookings.fulfil(p)
     if p["kind"] == "membership":
         return members.complete_membership(p)
+    if p["kind"] == "club":
+        return club.complete_online(p)
 
 
 def _public_booking(b, with_quote=False):
@@ -400,6 +409,22 @@ def me_membership_order(req):
     """Buy / renew online. Returns the payment page to redirect to."""
     pay = members.order_membership(req.user["id"], req.body.get("months", 1))
     return {"redirect": pay["redirect"], "amount": pay["amount"], "credit_used": pay["credit_used"]}
+
+
+@route("POST", "/api/me/club/book", "user")
+def me_club_book(req):
+    """A club member books a court with their club hours (no payment)."""
+    b = req.body
+    bk = club.book(req.user["id"], b.get("court_id"), b.get("date"), b.get("start"), b.get("slots", 1),
+                   channel=b.get("channel"))
+    return {"booking": _public_booking(bk)}
+
+
+@route("POST", "/api/me/club/order", "user")
+def me_club_order(req):
+    """Renew the club membership online. Returns the payment page to redirect to."""
+    pay = club.order(req.user["id"], req.body.get("months", 1))
+    return {"redirect": pay["redirect"], "amount": pay["amount"]}
 
 
 @route("POST", "/api/me/referral", "user")
@@ -546,6 +571,37 @@ def add_membership(req):
     return {"membership": members.add_membership(int(req.body["user_id"]), int(req.body["plan_id"]),
                                                  int(req.body.get("months", 1)), req.user["name"],
                                                  req.body.get("method") or "cash")}
+
+
+@route("GET", "/api/admin/club", "staff")
+def club_roster(req):
+    return {"members": club.roster(), "hours_per_month": config.CLUB_HOURS,
+            "price_monthly": config.CLUB_PRICE_MONTHLY, "month_options": config.CLUB_MONTH_OPTIONS}
+
+
+@route("GET", r"/api/admin/people/(\d+)/club", "staff")
+def club_detail(req, uid):
+    return {"club": club.usage(int(uid), with_serials=True)}
+
+
+@route("POST", "/api/admin/club/sell", "staff")
+def club_sell(req):
+    b = req.body
+    return {"club": club.sell(int(b["user_id"]), b.get("months", 1), req.user["name"], b.get("method") or "cash",
+                              b.get("amount"))}
+
+
+@route("POST", "/api/admin/club/book", "staff")
+def club_desk_book(req):
+    b = req.body
+    bk = club.book(int(b["user_id"]), b.get("court_id"), b.get("date"), b.get("start"), b.get("slots", 1),
+                   staff=req.user["name"], channel=b.get("channel"))
+    return {"booking": bk}
+
+
+@route("POST", r"/api/admin/club/(\d+)/cancel", "admin")
+def club_cancel(req, cid):
+    return {"club": club.cancel_membership(int(cid), req.user["name"])}
 
 
 @route("POST", "/api/admin/enroll", "staff")
@@ -788,7 +844,7 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(404, "Not found")
         except HttpError as e:
             self._json(e.status, {"error": str(e)})
-        except (BookingError, AuthError, MemberError, PaymentError, EventError) as e:
+        except (BookingError, AuthError, MemberError, PaymentError, EventError, ClubError) as e:
             self._json(400, {"error": str(e)})
         except (KeyError, ValueError) as e:
             self._json(400, {"error": f"Bad request: {e}"})

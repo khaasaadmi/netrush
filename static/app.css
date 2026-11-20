@@ -370,6 +370,14 @@ code.big { font-size: 1.05rem; font-weight: 800; letter-spacing: .18em; font-fam
 .kv dt { color: var(--ink-3); font-weight: 600; }
 .kv dd { margin: 0; font-weight: 700; }
 .login { max-width: 420px; margin: 40px auto; }
+.serials { display: flex; flex-wrap: wrap; gap: 6px; }
+.serials .pill code { font-size: .78rem; letter-spacing: .06em; }
+.club-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.club-sport { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; background: var(--surface); }
+.club-sport .ico { width: 28px; height: 28px; display: inline-grid; place-items: center; margin-right: 6px; color: var(--c); }
+.club-sport .ico svg { width: 22px; height: 22px; }
+.club-sport .meter { margin: 8px 0 4px; }
+@media (max-width: 720px) { .club-grid { grid-template-columns: 1fr; } }
 .hint { background: color-mix(in srgb, var(--lime) 38%, var(--surface)); border: 1px dashed color-mix(in srgb, var(--ink) 30%, transparent);
   border-radius: 12px; padding: 10px 12px; font-size: .84rem; }
 .hint code { font-weight: 800; font-size: .95rem; letter-spacing: .08em; }

@@ -146,7 +146,8 @@ def _new_code(c):
     lo = 10 ** (config.DOOR_CODE_DIGITS - 1)
     while True:
         code = str(lo + secrets.randbelow(9 * lo))
-        if code not in taken and len(set(code)) > 1:  # skip 111111…
+        if code not in taken and len(set(code)) > 1 and \
+                not c.execute("SELECT 1 FROM club_serials WHERE serial=?", (code,)).fetchone():  # skip 111111…
             return code
 
 
@@ -172,7 +173,10 @@ def issue_due_codes():
         with db.tx() as c:
             if c.execute("SELECT 1 FROM door_codes WHERE booking_id=?", (b["id"],)).fetchone():
                 continue  # another thread got here first
-            code = _new_code(c)
+            # A club booking enters with the serial of its first booked hour; a guest gets a fresh random code.
+            club = c.execute("SELECT serial FROM club_serials WHERE booking_id=? ORDER BY id LIMIT 1",
+                             (b["id"],)).fetchone()
+            code = club[0] if club else _new_code(c)
             cur = c.execute(
                 "INSERT INTO door_codes(booking_id,code,valid_from,valid_to,status,created_at) "
                 "VALUES(?,?,?,?,'active',?)",
@@ -278,6 +282,10 @@ def door_access(user_id, day=None):
     r = db.one("SELECT MAX(end_date) AS until FROM memberships WHERE user_id=? AND status='active' "
                "AND start_date<=? AND end_date>=?", user_id, day, day)
     until = r["until"] if r else None
+    if config.CLUB_FACE_ACCESS:
+        cl = db.one("SELECT MAX(end_date) AS until FROM club_memberships WHERE user_id=? AND status='active' "
+                    "AND start_date<=? AND end_date>=?", user_id, day, day)
+        until = max(filter(None, (until, cl and cl["until"])), default=None)
     if config.ACADEMY_DOOR_ACCESS:
         a = db.one("SELECT MAX(fee_paid_until) AS until FROM academy_enrollments WHERE user_id=? "
                    "AND status='active' AND fee_paid_until>=?", user_id, day)
@@ -293,8 +301,10 @@ def entitlement(user_id, day=None):
         "SELECT MAX(d) AS until FROM ("
         " SELECT end_date AS d FROM memberships WHERE user_id=? AND status='active' AND start_date<=? AND end_date>=?"
         " UNION ALL"
-        " SELECT fee_paid_until FROM academy_enrollments WHERE user_id=? AND status='active' AND fee_paid_until>=?)",
-        user_id, day, day, user_id, day)
+        " SELECT fee_paid_until FROM academy_enrollments WHERE user_id=? AND status='active' AND fee_paid_until>=?"
+        " UNION ALL"
+        " SELECT end_date FROM club_memberships WHERE user_id=? AND status='active' AND start_date<=? AND end_date>=?)",
+        user_id, day, day, user_id, day, user_id, day, day)
     return r["until"] if r else None
 
 

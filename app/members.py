@@ -3,7 +3,7 @@ from datetime import date as Date, timedelta
 
 import json
 
-from . import access, clock, config, db, notify, payments, seed
+from . import access, club, clock, config, db, notify, payments, seed
 
 
 class MemberError(Exception):
@@ -75,6 +75,7 @@ def status(user_id):
                              "months": config.ONLINE_MEMBERSHIP_MONTH_OPTIONS,
                              "starts": _next_start(user_id).isoformat()},
         "refund_policy": bk.refund_policy_text(),
+        "club": club.usage(user_id),
     }
 
 
@@ -332,6 +333,22 @@ def send_reminders():
             "end_date": Date.fromisoformat(m["end_date"]).strftime("%d %b %Y"), "when": _when(left),
         }, dedupe_key=f"mem:{m['id']}:{b}")
         sent.append(("membership", m["name"], b, r))
+    for m in db.all_(
+        "SELECT m.id, m.user_id, m.end_date, u.name, u.phone FROM club_memberships m JOIN users u ON u.id=m.user_id "
+        "WHERE m.status='active' AND m.end_date BETWEEN ? AND ? AND m.start_date<=?",
+        today.isoformat(), horizon, today.isoformat()):
+        if db.one("SELECT 1 AS x FROM club_memberships WHERE user_id=? AND status='active' AND end_date>?",
+                  m["user_id"], m["end_date"]):
+            continue   # already renewed
+        left = (Date.fromisoformat(m["end_date"]) - today).days
+        b = _bucket(left)
+        if b is None:
+            continue
+        r = notify.send("membership_reminder", m["phone"], {
+            "name": m["name"].split()[0], "plan": club.PLAN_NAME,
+            "end_date": Date.fromisoformat(m["end_date"]).strftime("%d %b %Y"), "when": _when(left),
+        }, dedupe_key=f"club:{m['id']}:{b}")
+        sent.append(("club", m["name"], b, r))
     for e in db.all_(
         "SELECT e.id, e.fee_paid_until, b.name AS batch, u.name, u.phone FROM academy_enrollments e "
         "JOIN academy_batches b ON b.id=e.batch_id JOIN users u ON u.id=e.user_id "

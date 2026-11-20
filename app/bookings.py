@@ -345,6 +345,10 @@ def refund_quote(b, by="customer"):
         return {"can_cancel": False, "amount": 0, "pct": 0, "note": "Already " + b["status"]}
     if by == "customer" and started:
         return {"can_cancel": False, "amount": 0, "pct": 0, "note": "The slot has already started"}
+    if b["pay_status"] == "club":
+        from . import club
+        give_back, note = club.cancel_terms(b, by)
+        return {"can_cancel": True, "amount": 0, "pct": 0, "note": note, "club_hours_back": give_back}
     paid = payments.paid_total("booking", b["id"])  # may be an advance, less than the full price
     if not paid:
         return {"can_cancel": True, "amount": 0, "pct": 0, "note": "Nothing was charged"}
@@ -382,6 +386,9 @@ def cancel(booking_id, by="customer"):
         if cur.rowcount != 1:
             raise BookingError("This booking was already cancelled")
     access.revoke_for_booking(booking_id, f"cancelled by {by}")
+    if b["pay_status"] == "club":
+        from . import club
+        club.release(booking_id, q["club_hours_back"])
     p, left = None, q["amount"]
     for pay in db.all_("SELECT * FROM payments WHERE kind='booking' AND ref_id=? AND status='paid' ORDER BY id DESC",
                        booking_id):  # usually one payment; an advance plus a balance makes two
@@ -391,7 +398,9 @@ def cancel(booking_id, by="customer"):
         p = payments.request_refund(pay["id"], part) or pay
         left -= part
     if b["status"] in ("confirmed", "reserved"):
-        if q["amount"] and p and p["provider"] == "desk":
+        if b["pay_status"] == "club":
+            refund = q["note"] + "."
+        elif q["amount"] and p and p["provider"] == "desk":
             refund = f"Rs {q['amount']} will be handed back to you at the front desk."
         elif q["amount"]:
             refund = f"Rs {q['amount']} is being refunded to your original payment method."

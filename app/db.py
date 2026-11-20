@@ -220,6 +220,35 @@ CREATE TABLE IF NOT EXISTS event_enquiries (
     source     TEXT                           -- marketing source of the visit (agency link, Instagram, …)
 );
 
+-- Club membership (app/club.py): one row per purchase / renewal
+CREATE TABLE IF NOT EXISTS club_memberships (
+    id         INTEGER PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    start_date TEXT NOT NULL,                  -- YYYY-MM-DD
+    end_date   TEXT NOT NULL,                  -- last valid day, inclusive
+    months     INTEGER NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'active', -- active | cancelled
+    created_at TEXT NOT NULL,
+    created_by TEXT                            -- staff name, or 'online'
+);
+
+-- One 6-digit serial per included court hour, per sport, per club month, generated at purchase
+CREATE TABLE IF NOT EXISTS club_serials (
+    id           INTEGER PRIMARY KEY,
+    club_id      INTEGER NOT NULL REFERENCES club_memberships(id),
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    period       INTEGER NOT NULL,             -- 0 = first club month
+    period_start TEXT NOT NULL,
+    period_end   TEXT NOT NULL,                -- inclusive; unused serials expire after this day
+    sport        TEXT NOT NULL,
+    serial       TEXT NOT NULL UNIQUE,
+    status       TEXT NOT NULL,                -- free | booked | expired
+    booking_id   INTEGER REFERENCES bookings(id),
+    booked_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_club_serials_user ON club_serials(user_id, period_start, sport, status);
+CREATE INDEX IF NOT EXISTS ix_club_serials_booking ON club_serials(booking_id);
+
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 """
 

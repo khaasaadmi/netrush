@@ -107,10 +107,10 @@ function toast(msg, err) {
 const rupees = n => "₹" + Number(n || 0).toLocaleString("en-IN");
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-function niceDate(iso) {   // "2026-09-28" → "Mon 28 Sep"
+function niceDate(iso) {   // "2026-09-28" → "Mon 28 Sep"; adds the year when it isn't within the next ~10 months
   const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  return `${DAYS[dt.getDay()]} ${d} ${MONTHS[m - 1]}`;
+  const dt = new Date(y, m - 1, d), far = Math.abs(dt - Date.now()) > 300 * 864e5;
+  return `${DAYS[dt.getDay()]} ${d} ${MONTHS[m - 1]}${far ? " " + y : ""}`;
 }
 const hhmm = s => s.slice(11, 16);
 const SPORT_LABEL = { badminton: "Badminton", padel: "Padel", pickleball: "Pickleball" };
@@ -128,6 +128,7 @@ const SPORT_ICON = {
     <circle cx="20" cy="18.5" r="1.3" fill="currentColor"/><circle cx="13" cy="19.5" r="1.3" fill="currentColor"/><circle cx="16" cy="15.5" r="1.3" fill="currentColor"/></svg>`,
 };
 const ICON = {
+  club: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>`,
   party: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l5-14 9 9-14 5z"/><path d="M14 4l1 2M19 9l2 1M17 3l-1 3M21 7l-3 1"/></svg>`,
   today: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>`,
   people: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 14.8c1.8.7 3 2.5 3.5 5.2"/></svg>`,

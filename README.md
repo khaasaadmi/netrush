@@ -30,7 +30,7 @@ python -m unittest discover -s tests
 ```
 
 **Running it for real:** the server runs on a laptop / PC at the arena next to the door terminal, the pages are
-on Netlify, and a Cloudflare Tunnel connects the two. See [DEPLOY.md](DEPLOY.md).
+on Netlify, and a Cloudflare Tunnel connects the two. Start with [GO-LIVE.md](GO-LIVE.md) (the order, every account and ID, and where each goes), then [DEPLOY.md](DEPLOY.md) for the detailed steps.
 
 ## How it behaves
 
@@ -55,6 +55,10 @@ on Netlify, and a Cloudflare Tunnel connects the two. See [DEPLOY.md](DEPLOY.md)
 - **Member logins are created by the desk.** Reception or the admin creates each member's or academy player's
   login (member ID + temporary password); at the first sign-in they must set their own password and may pick a
   username. Guests book with their mobile number and can log in with a one-time code.
+- **Club membership.** All three sports with monthly hours (26 badminton, 20 pickleball, 7 padel). Every club
+  month gets its own 6-digit serials, one per hour per sport; each booking's first serial is its door code, live
+  on the terminal only for that slot. Unused hours expire at month end. Members, reception and admin all see the
+  usage; members book and renew in the portal.
 - **Events and parties.** A "Planning to hold an event?" section on the home page takes enquiries (name, mobile,
   number of people, optional message) into Admin → Events, with an optional WhatsApp alert to a staff phone.
 - **Light and dark mode** on every page: follows the device, or the visitor's choice from the sun/moon button.
@@ -66,6 +70,7 @@ server.py            routes: public pages, booking, payment page, portal, staff 
 app/bookings.py      availability, holds, reservations, staff bookings, cancellation and refund policy
 app/payments.py      online orders, verification, webhook, desk payments, day book, automatic refunds
 app/members.py       portal status, memberships, referrals, academy fees, reminders
+app/club.py          club membership: monthly hours per sport, serial numbers, booking, expiry, usage
 app/events.py        event / party enquiries: validation, spam guard, staff alert, statuses
 app/tracking.py      visit sources and per-source bookings and revenue
 app/analytics.py     revenue, utilisation, peak hours, insights

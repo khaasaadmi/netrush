@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script>try{var t=localStorage.getItem("nr_theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NetRush Admin</title>
 <meta name="robots" content="noindex">
@@ -131,6 +132,7 @@
           <div><label>Email</label><input id="pf-email"></div>
           <div data-lockonly><label>User ID on the door terminal (face enrolled)</label><input id="pf-lock" placeholder="e.g. 101"></div>
           <div><label>Guardian (juniors)</label><input id="pf-guardian"></div>
+          <div><label>Referred by (member ID, optional)</label><input id="pf-ref" placeholder="NR-0012"></div>
           <div><label>Messages by</label><select id="pf-chan"><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option></select></div>
         </div>
         <div class="row" style="margin-top:14px"><button id="pf-save">Save</button><button class="ghost" id="pf-cancel">Cancel</button></div>
@@ -210,6 +212,17 @@
     </section>
   </main>
 </div>
+
+<!-- a member's new login, shown once -->
+<div class="sheet-bg hidden" id="cred"><div class="sheet" role="dialog" aria-modal="true" style="width:min(440px,100%)">
+  <div class="eyebrow">Login for</div><h2 id="cred-name" style="margin-top:4px"></h2>
+  <dl class="kv" style="margin:14px 0"><dt>Member ID</dt><dd id="cred-id"></dd>
+    <dt>Temporary password</dt><dd><code class="big" id="cred-pw"></code></dd></dl>
+  <p class="small muted">Give these to the member now. This password is shown only once. At their first sign-in on
+    the website they must choose their own password, and can pick a username.</p>
+  <div class="row" style="margin-top:14px"><button class="ghost" id="cred-copy">Copy</button><span class="spacer"></span>
+    <button id="cred-close">Done</button></div>
+</div></div>
 
 <!-- "how was it paid" dialog -->
 <div class="sheet-bg hidden" id="ask"><div class="sheet" role="dialog" aria-modal="true" style="width:min(440px,100%)">
@@ -439,7 +452,7 @@ async function loadPeople() {
   const planOpts = A.cat.plans.map(p => `<option value="${p.id}" data-price="${p.price}">${esc(p.name)} · ${rupees(p.price)}</option>`).join("");
   const batchOpts = A.cat.batches.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const statePill = (st, text) => `<span class="pill ${st === "active" ? "ok" : st === "expired" ? "bad" : st === "upcoming" ? "plain" : "warn"}">${text}</span>`;
-  $("#p-table").innerHTML = `<thead><tr><th>Person</th><th>Membership</th><th>Academy</th><th>Referrals</th><th>Actions</th></tr></thead><tbody>` +
+  $("#p-table").innerHTML = `<thead><tr><th>Person</th><th>Membership</th><th>Academy</th><th>Login</th><th>Referrals</th><th>Actions</th></tr></thead><tbody>` +
     (A.people.length ? A.people.map(p => {
       const m = p.memberships[0];
       const mem = m ? `<div class="small"><b>${esc(m.plan)}</b></div>${statePill(m.state, m.state === "active" ? "to " + niceDate(m.end_date) : m.days_left === 0 ? "ends today" : m.state === "expired" ? "expired " + niceDate(m.end_date) : m.state === "upcoming" ? "from " + niceDate(m.start_date) : m.days_left + " days left")}` : `<span class="pill plain">guest</span>`;
@@ -447,12 +460,16 @@ async function loadPeople() {
         <button class="sm ghost" data-fee="${a.id}">+1 mo</button></div>`).join("") || `<span class="faint">—</span>`;
       const ref = [p.referrals ? `${p.referrals} invited` : "", p.credit ? `<b>${rupees(p.credit)} credit</b>` : "", p.referred_by ? `by ${esc(p.referred_by)}` : ""].filter(Boolean).join("<br>") || `<span class="faint">—</span>`;
       return `<tr><td class="who"><b>${esc(p.name)}</b><span><code>${p.member_id}</code> · ${p.phone}${p.guardian_name ? " · guardian " + esc(p.guardian_name) : ""}</span></td>
-        <td>${mem}</td><td>${ac}</td><td class="small">${ref}</td>
+        <td>${mem}</td><td>${ac}</td>
+        <td>${p.has_login ? `${p.must_change_pw ? `<span class="pill warn">temporary</span>` : `<span class="pill ok">set</span>`}
+            ${p.username ? `<div class="tiny faint">${esc(p.username)}</div>` : ""}<div><button class="sm ghost" data-login="${p.id}" style="margin-top:4px">Reset password</button></div>`
+          : `<button class="sm" data-login="${p.id}">Create login</button>`}</td>
+        <td class="small">${ref}</td>
         <td><div class="row" style="gap:6px;flex-wrap:nowrap">
           <select data-plan="${p.id}" data-credit="${p.credit}" style="width:auto;padding:7px 10px;font-size:.82rem"><option value="">Sell / renew plan…</option>${planOpts}</select>
           <select data-batch="${p.id}" style="width:auto;padding:7px 10px;font-size:.82rem"><option value="">Enroll…</option>${batchOpts}</select>
           <button class="sm ghost" data-edit="${p.id}">Edit</button></div></td></tr>`;
-    }).join("") : `<tr><td colspan="5"><div class="empty">No one matches.</div></td></tr>`) + "</tbody>";
+    }).join("") : `<tr><td colspan="6"><div class="empty">No one matches.</div></td></tr>`) + "</tbody>";
   $$("[data-plan]").forEach(s => s.onchange = async () => {
     if (!s.value) return;
     const price = +s.selectedOptions[0].dataset.price, credit = Math.min(+s.dataset.credit, price);
@@ -470,20 +487,41 @@ async function loadPeople() {
   });
   $$("#p-table [data-fee]").forEach(b => b.onclick = () => payFee(b.dataset.fee));
   $$("[data-edit]").forEach(b => b.onclick = () => openForm(A.people.find(p => p.id === +b.dataset.edit)));
+  $$("[data-login]").forEach(b => b.onclick = () => issueLogin(A.people.find(p => p.id === +b.dataset.login)));
+}
+
+// Create or reset a member's login: show the temporary password once, to hand over at the desk.
+async function issueLogin(p) {
+  const reset = p.has_login;
+  if (reset && !confirm(`Reset ${p.name}'s password? They'll be signed out and must choose a new one at their next sign-in.`)) return;
+  try {
+    const r = await api(`/api/admin/people/${p.id}/login`, {});
+    $("#cred-name").textContent = p.name;
+    $("#cred-id").textContent = r.member_id + (r.username ? `  or  ${r.username}` : "");
+    $("#cred-pw").textContent = r.temp_password;
+    $("#cred").classList.remove("hidden");
+    loadPeople();
+  } catch (e) { toast(e.message, true); }
 }
 function openForm(p) {
   $("#p-form-h").textContent = p ? "Edit " + p.name : "Add person";
   $("#pf-name").value = p?.name || ""; $("#pf-phone").value = p?.phone || ""; $("#pf-email").value = p?.email || "";
-  $("#pf-lock").value = p?.lock_user_id || ""; $("#pf-guardian").value = p?.guardian_name || "";
+  $("#pf-lock").value = p?.lock_user_id || ""; $("#pf-guardian").value = p?.guardian_name || ""; $("#pf-ref").value = "";
   $("#pf-chan").value = (p && (p.pref_channel || (p.sms_opt && !p.wa_opt ? "sms" : null))) || A.cfg.default_channel || "whatsapp";
   $("#p-form").classList.remove("hidden"); $("#pf-name").focus();
 }
 $("#p-new").onclick = () => openForm(null);
+$("#cred-close").onclick = () => { $("#cred").classList.add("hidden"); $("#cred-pw").textContent = ""; };
+$("#cred-copy").onclick = async () => {
+  const text = `NetRush login\nMember ID: ${$("#cred-id").textContent}\nTemporary password: ${$("#cred-pw").textContent}\nLog in at ${location.origin}/portal and choose your own password.`;
+  try { await navigator.clipboard.writeText(text); toast("Copied"); } catch (e) { prompt("Copy:", text); }
+};
 $("#pf-cancel").onclick = () => $("#p-form").classList.add("hidden");
 $("#pf-save").onclick = async () => {
   try {
     await api("/api/admin/people", { name: $("#pf-name").value, phone: $("#pf-phone").value, email: $("#pf-email").value,
-      lock_user_id: $("#pf-lock").value, guardian_name: $("#pf-guardian").value, pref: $("#pf-chan").value });
+      lock_user_id: $("#pf-lock").value, guardian_name: $("#pf-guardian").value, pref: $("#pf-chan").value,
+      referred_by: $("#pf-ref").value });
     toast("Saved"); $("#p-form").classList.add("hidden"); loadPeople();
   } catch (e) { toast(e.message, true); }
 };

@@ -111,13 +111,12 @@ class OnlineMembershipTests(Base):
         with self.assertRaises(members.MemberError):
             members.order_membership(kabir["id"], 5)                       # not an offered duration
 
-    def test_new_signup_buys_membership(self):
+    def test_guests_cannot_make_themselves_members_online(self):
         code, _, _ = self.run_quiet(auth.request_login_code, "9812345678")
-        uid = auth.user_for(auth.verify_login_code("9812345678", code, "New Member"))["id"]
-        p, _ = payments.capture(self.run_quiet(members.order_membership, uid, 1)["payment_id"], {})
-        self.run_quiet(members.complete_membership, p)
-        self.assertEqual(access.entitlement(uid), "2026-10-27")
-        self.assertIn("front desk", self.sent("membership_confirmed")[0]["body"])  # no fingerprint yet
+        uid = auth.user_for(auth.verify_login_code("9812345678", code, "New Guest"))["id"]
+        with self.assertRaises(members.MemberError):
+            members.order_membership(uid, 1)
+        self.assertIsNone(access.entitlement(uid))
 
 
 class ReportTests(Base):

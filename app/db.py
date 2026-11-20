@@ -16,7 +16,11 @@ CREATE TABLE IF NOT EXISTS users (
     referral_rewarded INTEGER NOT NULL DEFAULT 0,  -- their referrer has been credited (once, ever)
     credit        INTEGER NOT NULL DEFAULT 0, -- rupees off their next membership payment
     pref_channel  TEXT,                       -- whatsapp | sms: the ONE channel they want codes and messages on
-    password_hash TEXT,                       -- admins only
+    password_hash TEXT,                       -- staff, and members / academy players once a login is created
+    username      TEXT,                       -- a login ID the member chose (lower case); NR-xxxx always works too
+    must_change_pw INTEGER NOT NULL DEFAULT 0, -- 1 = signed in with a temporary password: must set their own
+    pw_failed     INTEGER NOT NULL DEFAULT 0, -- wrong passwords in a row
+    pw_locked_until TEXT,                     -- too many wrong passwords: no login until then
     sms_opt       INTEGER NOT NULL DEFAULT 1,
     wa_opt        INTEGER NOT NULL DEFAULT 1,
     lock_user_id  TEXT,                       -- their user ID on the door terminal (face enrolled there)
@@ -24,6 +28,8 @@ CREATE TABLE IF NOT EXISTS users (
     guardian_name TEXT,                       -- academy juniors
     created_at    TEXT NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users(username);
 
 CREATE TABLE IF NOT EXISTS courts (
     id    TEXT PRIMARY KEY,
@@ -234,7 +240,9 @@ _ADDED = {
     ],
     "payments": [("secret", "TEXT"), ("method", "TEXT"), ("note", "TEXT")],
     "users": [("role", "TEXT"), ("referred_by", "INTEGER"), ("referral_rewarded", "INTEGER NOT NULL DEFAULT 0"),
-              ("credit", "INTEGER NOT NULL DEFAULT 0"), ("pref_channel", "TEXT")],
+              ("credit", "INTEGER NOT NULL DEFAULT 0"), ("pref_channel", "TEXT"), ("username", "TEXT"),
+              ("must_change_pw", "INTEGER NOT NULL DEFAULT 0"), ("pw_failed", "INTEGER NOT NULL DEFAULT 0"),
+              ("pw_locked_until", "TEXT")],
     "access_events": [("ext_id", "TEXT")],
 }
 

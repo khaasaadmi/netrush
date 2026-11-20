@@ -46,6 +46,9 @@ def seed(c):
             (name, phone, lock_id, now),
         )
         ids.append(cur.lastrowid)
+    # Demo logins: Aarav has set his own password; Ishaan has only the reception's temporary one.
+    c.execute("UPDATE users SET password_hash=?, username='aarav' WHERE id=?", (hash_password("member123"), ids[0]))
+    c.execute("UPDATE users SET password_hash=?, must_change_pw=1 WHERE id=?", (hash_password("welcome1"), ids[3]))
     # Aarav: ends in 7 days (7-day reminder). Diya: ends today (last-day reminder). Kabir: healthy.
     c.executemany(
         "INSERT INTO memberships(user_id,plan_id,start_date,end_date,created_at) VALUES(?,?,?,?,?)",

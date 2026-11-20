@@ -111,6 +111,9 @@ MSG91_FLOWS = {
     "booking_cancelled": env("MSG91_FLOW_CANCELLED"),
     "refund_issued": env("MSG91_FLOW_REFUND"),
     "membership_confirmed": env("MSG91_FLOW_MEMBERSHIP_OK"),
+    "reservation_received": env("MSG91_FLOW_RESERVED"),
+    "reservation_released": env("MSG91_FLOW_RELEASED"),
+    "referral_reward": env("MSG91_FLOW_REFERRAL"),
 }
 
 WA_TOKEN = env("WA_TOKEN")

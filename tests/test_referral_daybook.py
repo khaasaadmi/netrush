@@ -13,6 +13,9 @@ class ReferralTests(Base):
     def credit(self, uid):
         return db.one("SELECT credit FROM users WHERE id=?", uid)["credit"]
 
+    def join_at_desk(self, uid):
+        return self.run_quiet(members.add_membership, uid, 1, 1, "Reception", "cash")
+
     def buy_online(self, uid, months=1):
         pay = self.run_quiet(members.order_membership, uid, months)
         if pay["amount"]:
@@ -23,27 +26,27 @@ class ReferralTests(Base):
     def test_referrer_gets_300_when_friend_takes_first_membership(self):
         uid = self.newcomer(ref="nr-0002")                                  # signed up from Aarav's link
         self.assertEqual(self.credit(self.AARAV), 0)                        # signing up alone earns nothing
-        self.buy_online(uid)
+        self.join_at_desk(uid)                                              # reception creates the membership
         self.assertEqual(self.credit(self.AARAV), config.REFERRAL_REWARD)
         self.assertEqual(len(self.sent("referral_reward")), 1)
-        self.buy_online(uid)                                                # friend renews: no second reward
+        self.buy_online(uid)                                                # friend renews online: no second reward
         self.assertEqual(self.credit(self.AARAV), 300)
 
     def test_credit_comes_off_referrers_next_payment_online(self):
-        self.buy_online(self.newcomer(ref="NR-0002"))
+        self.join_at_desk(self.newcomer(ref="NR-0002"))
         pay = self.buy_online(self.AARAV)
         self.assertEqual((pay["amount"], pay["credit_used"]), (config.ONLINE_MEMBERSHIP_MONTHLY - 300, 300))
         self.assertEqual(self.credit(self.AARAV), 0)
         self.assertEqual(self.buy_online(self.AARAV)["amount"], config.ONLINE_MEMBERSHIP_MONTHLY)  # used once
 
     def test_credit_comes_off_at_the_desk_too(self):
-        self.buy_online(self.newcomer(ref="NR-0002"))
+        self.join_at_desk(self.newcomer(ref="NR-0002"))
         m = self.run_quiet(members.add_membership, self.AARAV, 1, 1, "Reception", "upi")   # ₹2500 plan
         self.assertEqual((m["paid"], m["credit_used"]), (2200, 300))
         self.assertEqual(self.credit(self.AARAV), 0)
 
     def test_abandoned_checkout_keeps_the_credit(self):
-        self.buy_online(self.newcomer(ref="NR-0002"))
+        self.join_at_desk(self.newcomer(ref="NR-0002"))
         self.run_quiet(members.order_membership, self.AARAV, 1)             # opened the payment page, never paid
         self.assertEqual(self.credit(self.AARAV), 300)
 
@@ -75,7 +78,7 @@ class ReferralTests(Base):
         self.assertEqual(len(members.status(self.AARAV)["memberships"]), 2)
 
     def test_portal_summary(self):
-        self.buy_online(self.newcomer(ref="NR-0002"))
+        self.join_at_desk(self.newcomer(ref="NR-0002"))
         r = members.status(self.AARAV)["referral"]
         self.assertEqual((r["code"], r["credit"], r["earned"], r["can_share"]), ("NR-0002", 300, 300, True))
         self.assertEqual(r["friends"], [{"name": "Neha", "joined": True}])

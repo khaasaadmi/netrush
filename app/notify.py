@@ -151,7 +151,11 @@ def can_send(ch, kind=""):
     if ch == "sms":
         if config.SMS_PROVIDER == "console":
             return False
-        return kind == "login_otp" if config.SMS_PROVIDER == "2factor" else True
+        if config.SMS_PROVIDER == "2factor":
+            return kind == "login_otp"
+        if config.SMS_PROVIDER == "msg91":   # each SMS type needs its own DLT-approved template (flow)
+            return bool(config.MSG91_FLOWS.get(kind)) if kind else any(config.MSG91_FLOWS.values())
+        return True
     return config.WHATSAPP_PROVIDER != "console"
 
 

@@ -307,6 +307,39 @@ def firebase_login(req):
     return {"ok": True}
 
 
+@route("POST", "/api/auth/member")
+def member_login(req):
+    """Members and academy players: member ID / username / mobile + password."""
+    token, must_change = auth.member_login(req.body.get("id"), req.body.get("password"))
+    req.set_cookie = token
+    return {"ok": True, "must_change": must_change}
+
+
+@route("POST", "/api/me/credentials", "user")
+def me_credentials(req):
+    """Set their own password (required after a temporary one) and, optionally, a username."""
+    b = req.body
+    auth.change_member_credentials(req.user["id"], b.get("current"), b.get("new_password"), b.get("username"))
+    return {"ok": True}
+
+
+@route("GET", "/api/pricing")
+def pricing(req):
+    """Everything a visitor might pay: courts per hour, membership plans and academy batches."""
+    from app import seed
+    plans = db.all_("SELECT id, name, sport, duration_days, price FROM plans ORDER BY price")
+    batches = db.all_("SELECT name, coach, weekdays, start_time, end_time, monthly_fee FROM academy_batches "
+                      "ORDER BY monthly_fee")
+    for b in batches:
+        b["days"] = ", ".join(members.WEEKDAYS[int(d)] for d in b.pop("weekdays").split(","))
+    return {"courts": [{"sport": s, "per_hour": p, "courts": db.one("SELECT COUNT(*) AS n FROM courts WHERE sport=? "
+                                                                     "AND active=1", s)["n"]}
+                       for s, p in config.PRICES_PER_HOUR.items()],
+            "online_plan": seed.ONLINE_PLAN, "plans": plans, "batches": batches,
+            "slot_min": config.SLOT_MIN, "refund_policy": bookings.refund_policy_text(),
+            "first_discount_pct": config.FIRST_BOOKING_DISCOUNT_PCT, "referral_reward": config.REFERRAL_REWARD}
+
+
 @route("POST", "/api/auth/admin")
 def admin_login(req):
     req.set_cookie = auth.admin_login(req.body.get("phone"), req.body.get("password"))
@@ -380,10 +413,10 @@ def demo_info(req):
          "secret": "password: " + config.ADMIN_PASSWORD, "where": "/admin"},
         {"role": "Receptionist (bookings + members)", "login": config.RECEPTION_PHONE,
          "secret": "password: " + config.RECEPTION_PASSWORD, "where": "/admin"},
-        {"role": "Member (plan ends in 7 days)", "login": auth.member_id(2) + "  or  9000000001",
-         "secret": "code shown on screen", "where": "/portal"},
-        {"role": "Academy player (junior)", "login": auth.member_id(5) + "  or  9000000004",
-         "secret": "code shown on screen", "where": "/portal"},
+        {"role": "Member (plan ends in 7 days)", "login": auth.member_id(2),
+         "secret": "password: member123", "where": "/portal"},
+        {"role": "Academy player (first sign-in: must set a password)", "login": auth.member_id(5),
+         "secret": "temporary password: welcome1", "where": "/portal"},
         {"role": "Guest (new customer)", "login": "any new 10-digit mobile number",
          "secret": "code shown on screen", "where": "/book"},
     ], "lock": config.LOCK_ENABLED, "fingerprints": [{"id": "101", "who": "Aarav Mehta (member, active)"},
@@ -507,7 +540,8 @@ def catalog(req):
 @route("GET", "/api/admin/people", "staff")
 def people(req):
     q = "%" + (req.query.get("q") or "") + "%"
-    rows = db.all_("SELECT id,name,phone,email,lock_user_id,lock_enabled,guardian_name,sms_opt,wa_opt,pref_channel FROM users "
+    rows = db.all_("SELECT id,name,phone,email,lock_user_id,lock_enabled,guardian_name,sms_opt,wa_opt,pref_channel,"
+                   "username, password_hash IS NOT NULL AS has_login, must_change_pw FROM users "
                    "WHERE role IS NULL AND (name LIKE ? OR phone LIKE ?) ORDER BY name LIMIT 200", q, q)
     for r in rows:
         s = members.status(r["id"])
@@ -525,7 +559,20 @@ def save_person(req):
     uid = members.upsert_person(b.get("name"), b.get("phone"), b.get("email") or None, b.get("lock_user_id"),
                                 b.get("guardian_name") or None, int(pref != "whatsapp"), int(pref != "sms"))
     db.conn().execute("UPDATE users SET pref_channel=? WHERE id=?", (pref, uid))
+    if (b.get("referred_by") or "").strip():
+        try:
+            members.set_referrer(uid, b["referred_by"])
+        except MemberError as e:
+            raise HttpError(400, f"Saved, but the referral wasn't recorded: {e}")
     return {"id": uid}
+
+
+@route("POST", r"/api/admin/people/(\d+)/login", "staff")
+def issue_login(req, uid):
+    """Create or reset a member's login. Returns the temporary password to hand over once."""
+    pw = auth.issue_member_login(int(uid), req.body.get("password"))
+    u = db.one("SELECT username FROM users WHERE id=?", int(uid))
+    return {"member_id": auth.member_id(int(uid)), "username": u["username"], "temp_password": pw}
 
 
 @route("POST", "/api/admin/memberships", "staff")
@@ -772,6 +819,8 @@ class Handler(BaseHTTPRequestHandler):
                         raise HttpError(403, "Staff only")
                     if who == "admin" and req.user["role"] != "admin":
                         raise HttpError(403, "Only the admin can do this")
+                    if who == "user" and req.user["must_change_pw"] and fn.__name__ not in ("me", "me_credentials"):
+                        raise HttpError(403, "Please set your own password first")
                 out = fn(req, *match.groups())
                 if isinstance(out, Raw):
                     return self._raw(out)

@@ -1,4 +1,5 @@
-/* NetRush design system, built on the brand green. Light theme only. */
+/* NetRush design system, built on the brand green. Light and dark themes: the visitor's device
+   setting by default, or their choice from the sun/moon button (saved in data-theme on <html>). */
 @import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
 
 :root {
@@ -33,6 +34,63 @@
   color-scheme: light;
 }
 
+:root[data-theme="dark"] {
+  --bg: #0b120d;
+  --surface: #121b14;
+  --surface-2: #18241b;
+  --surface-3: #223026;
+  --ink: #e8efe6;
+  --ink-2: #a8b6a4;
+  --ink-3: #76846f;
+  --line: #243128;
+  --green: #5c9e4c;
+  --sage: #7d9a78;
+  --night: #102712;
+  --night-2: #18361a;
+  --lime: #c3e6ae;
+  --lime-ink: #10200f;
+  --brand: #3f8a33;
+  --brand-ink: #ffffff;
+  --badminton: #74c063;
+  --padel: #9a91ff;
+  --pickleball: #f29447;
+  --ok: #67c06a;
+  --warn: #e6a640;
+  --bad: #f07563;
+  --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 8px 28px rgb(0 0 0 / .3);
+  --shadow-lg: 0 24px 60px rgb(0 0 0 / .6);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+  --bg: #0b120d;
+  --surface: #121b14;
+  --surface-2: #18241b;
+  --surface-3: #223026;
+  --ink: #e8efe6;
+  --ink-2: #a8b6a4;
+  --ink-3: #76846f;
+  --line: #243128;
+  --green: #5c9e4c;
+  --sage: #7d9a78;
+  --night: #102712;
+  --night-2: #18361a;
+  --lime: #c3e6ae;
+  --lime-ink: #10200f;
+  --brand: #3f8a33;
+  --brand-ink: #ffffff;
+  --badminton: #74c063;
+  --padel: #9a91ff;
+  --pickleball: #f29447;
+  --ok: #67c06a;
+  --warn: #e6a640;
+  --bad: #f07563;
+  --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 8px 28px rgb(0 0 0 / .3);
+  --shadow-lg: 0 24px 60px rgb(0 0 0 / .6);
+  color-scheme: dark;
+  }
+}
+
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
@@ -58,7 +116,7 @@ header.top .wrap { display: flex; align-items: center; gap: 16px; height: 64px; 
 .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.12rem; letter-spacing: -.03em;
   text-decoration: none; color: var(--ink); white-space: nowrap; }
 .logo i { width: 34px; height: 36px; flex: none; background: url(/brand/mark.png) center / contain no-repeat; }
-.logo > span { width: 118px; height: 21px; font-size: 0; color: transparent; background: url(/brand/wordmark.png) left center / contain no-repeat; }
+.logo > span { flex: none; width: 118px; height: 21px; font-size: 0; color: transparent; background: url(/brand/wordmark.png) left center / contain no-repeat; }
 .side .logo i, .on-dark .logo i { background-image: url(/brand/mark-white.png); }
 .side .logo > span, .on-dark .logo > span { background-image: url(/brand/wordmark-white.png); }
 .logo small { font-weight: 700; color: var(--ink-3); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
@@ -342,3 +400,17 @@ code.big { font-size: 1.05rem; font-weight: 800; letter-spacing: .18em; font-fam
 .down-bar { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); border-bottom: 1px solid var(--line); font-size: .86rem; }
 .down-bar .wrap { padding-top: 9px; padding-bottom: 9px; }
 #recaptcha-box { position: fixed; bottom: 0; right: 0; z-index: 70; }
+
+/* ---------- dark theme: white logo, a few surfaces ---------- */
+:root[data-theme="dark"] .logo i { background-image: url(/brand/mark-white.png); }
+:root[data-theme="dark"] .logo > span { background-image: url(/brand/wordmark-white.png); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .logo i { background-image: url(/brand/mark-white.png); }
+  :root:not([data-theme="light"]) .logo > span { background-image: url(/brand/wordmark-white.png); }
+}
+.theme-btn { width: 38px; height: 38px; padding: 0; border-radius: 50%; background: var(--surface-2); color: var(--ink);
+  border: 1px solid var(--line); flex: none; }
+.theme-btn:hover { background: var(--surface-3); }
+.theme-btn svg { width: 18px; height: 18px; }
+.side .theme-btn { background: rgb(255 255 255 / .08); color: #fff; border-color: rgb(255 255 255 / .12); width: 34px; height: 34px; }
+.side .logo small { display: none; }

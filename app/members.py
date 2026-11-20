@@ -59,6 +59,8 @@ def status(user_id):
     until = access.entitlement(user_id)
     from .auth import member_id
     u["member_id"] = member_id(u["id"])
+    login = db.one("SELECT username, password_hash IS NOT NULL AS has_pw, must_change_pw FROM users WHERE id=?", user_id)
+    u["username"], u["has_login"], u["must_change_pw"] = login["username"], bool(login["has_pw"]), login["must_change_pw"]
     return {
         "user": u,
         "memberships": ms,
@@ -215,6 +217,8 @@ def order_membership(user_id, months):
     months = int(months)
     if months not in config.ONLINE_MEMBERSHIP_MONTH_OPTIONS:
         raise MemberError("Pick one of the offered durations")
+    if not db.one("SELECT 1 AS x FROM memberships WHERE user_id=?", user_id):
+        raise MemberError("New memberships are set up at the reception. Online payment is for renewals.")
     u = db.one("SELECT id, phone, credit FROM users WHERE id=?", user_id)
     total = config.ONLINE_MEMBERSHIP_MONTHLY * months
     credit_used = min(u["credit"], total)

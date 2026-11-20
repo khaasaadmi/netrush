@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script>try{var t=localStorage.getItem("nr_theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NetRush · Badminton, Padel &amp; Pickleball Courts</title>
 <meta name="description" content="Book badminton, padel and pickleball courts at NetRush in seconds. Pay online or reserve and pay at the venue. Memberships and badminton academy.">
@@ -68,6 +69,13 @@
   .cta-band h2 { font-size: clamp(1.5rem, 3.6vw, 2.3rem); margin: 0; letter-spacing: -.035em; }
   .cta-band { background: var(--green) !important; color: #fff !important; }
   .cta-band .btn { background: #fff; color: var(--night); }
+  .price-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
+  .price-grid td { padding: 10px 4px; }
+  .price-grid td:last-child { text-align: right; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .price-grid td .tiny { display: block; font-weight: 500; color: var(--ink-3); }
+  .price-notes { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .price-notes span { font-size: .84rem; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px; }
+  @media (max-width: 860px) { .price-grid { grid-template-columns: 1fr; } }
   .info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   .info .card h3 { margin-bottom: 6px; }
   details { border-bottom: 1px solid var(--line); padding: 16px 2px; }
@@ -90,7 +98,7 @@
 <body>
 <header class="top"><div class="wrap">
   <a class="logo" href="/"><i></i><span>NetRush</span></a>
-  <nav><a href="#sports">Courts</a><a href="#membership">Membership</a><a href="#academy">Academy</a><a href="#visit">Visit</a>
+  <nav><a href="#sports">Courts</a><a href="#pricing">Pricing</a><a href="#membership">Membership</a><a href="#visit">Visit</a>
     <a href="/portal" class="keep">Login</a><a href="/book" class="cta">Book a court</a></nav>
 </div></header>
 
@@ -156,6 +164,16 @@
     </div>
   </section>
 
+  <section id="pricing">
+    <div class="sec-head"><div class="eyebrow">Pricing</div><h2>Every price, in one place.</h2></div>
+    <div class="price-grid">
+      <div class="card"><h3>Court hire</h3><p class="small muted" id="pr-court-note">Per court, per hour.</p><table id="pr-courts"></table></div>
+      <div class="card"><h3>Memberships</h3><p class="small muted">Set up at the reception; renew online any time.</p><table id="pr-plans"></table></div>
+      <div class="card"><h3>Academy</h3><p class="small muted">Monthly coaching fees.</p><table id="pr-batches"></table></div>
+    </div>
+    <div class="price-notes" id="pr-notes"></div>
+  </section>
+
   <section class="cta-band">
     <div><h2 id="band-h">First time here? Your first booking is on us, a little.</h2>
       <p style="margin:8px 0 0;font-weight:600" id="band-p">Verify your mobile number while booking and save on your first court.</p></div>
@@ -197,6 +215,24 @@ $("#year").textContent = new Date().getFullYear();
 const h12 = h => (h % 12 || 12) + (h < 12 || h === 24 ? " am" : " pm");
 const BLURB = { badminton: "Wooden-sprung courts with proper lighting. Singles or doubles.",
   padel: "The fastest-growing racket sport. Glass court, doubles play.", pickleball: "Easy to learn, hard to stop. Great for all ages." };
+api("/api/pricing").then(p => {
+  const row = (name, sub, price) => `<tr><td><b>${esc(name)}</b>${sub ? `<span class="tiny">${esc(sub)}</span>` : ""}</td><td>${price}</td></tr>`;
+  $("#pr-courts").innerHTML = "<tbody>" + p.courts.filter(c => c.courts).map(c =>
+    row(SPORT_LABEL[c.sport] || c.sport, `${c.courts} court${c.courts > 1 ? "s" : ""}`, rupees(c.per_hour) + "<span class='tiny'>per hour</span>")).join("") + "</tbody>";
+  const months = d => d >= 360 ? "per year" : d >= 85 ? `for ${Math.round(d / 30)} months` : "per month";
+  $("#pr-plans").innerHTML = "<tbody>" + p.plans.map(pl =>
+    row(pl.name.replace(" (online)", ""), pl.sport ? `${SPORT_LABEL[pl.sport] || pl.sport} only` : "All courts",
+        rupees(pl.price) + `<span class='tiny'>${months(pl.duration_days)}</span>`)).join("") + "</tbody>";
+  $("#pr-batches").innerHTML = p.batches.length ? "<tbody>" + p.batches.map(b =>
+    row(b.name, `${b.days} · ${b.start_time}–${b.end_time}${b.coach ? " · " + b.coach : ""}`, rupees(b.monthly_fee) + "<span class='tiny'>per month</span>")).join("") + "</tbody>"
+    : `<tbody><tr><td class="muted">Batches announced soon. Ask at the reception.</td></tr></tbody>`;
+  $("#pr-notes").innerHTML = [
+    p.first_discount_pct ? `★ ${p.first_discount_pct}% off your first booking` : "",
+    p.referral_reward ? `Refer a friend who joins: ${rupees(p.referral_reward)} off your next month` : "",
+    p.refund_policy,
+  ].filter(Boolean).map(t => `<span>${esc(t)}</span>`).join("");
+}).catch(() => {});
+
 api("/api/config").then(cfg => {
   demoBar(cfg); rememberCampaign();
   const hours = `${h12(cfg.open_hour)} – ${h12(cfg.close_hour)}`, tel = cfg.arena.phone.replace(/\s/g, "");

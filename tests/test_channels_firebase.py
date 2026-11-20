@@ -118,9 +118,14 @@ class FirebaseTests(Base):
         u = auth.user_for(sess)
         self.assertEqual((u["phone"], u["name"], u["pref_channel"]), ("9812345678", "Neha Joshi", "sms"))
 
-    def test_existing_member_signs_in_without_name(self):
-        u = auth.user_for(auth.login_with_firebase(make_token(claims(phone="+919000000001"))))
-        self.assertEqual(u["name"], "Aarav Mehta")
+    def test_returning_guest_signs_in_without_name(self):
+        auth.login_with_firebase(make_token(claims()), name="Neha Joshi")
+        u = auth.user_for(auth.login_with_firebase(make_token(claims())))
+        self.assertEqual(u["name"], "Neha Joshi")
+
+    def test_members_cannot_use_sms_codes(self):
+        with self.assertRaises(auth.AuthError):
+            auth.login_with_firebase(make_token(claims(phone="+919000000001")))
 
     def test_sms_codes_come_from_firebase_not_the_server(self):
         config.DEMO_MODE = False
@@ -218,3 +223,21 @@ class BackupTests(Base):
             c.close()
         self.assertEqual(db.backup(folder, keep_days=30), path)               # once per day
         self.assertFalse(os.path.exists(os.path.join(folder, "netrush-2000-01-01.db")))
+
+
+class Msg91Tests(Base):
+    def test_sms_types_without_an_approved_template_fall_back_to_whatsapp(self):
+        config.DEMO_MODE = False
+        saved = (config.SMS_PROVIDER, config.WHATSAPP_PROVIDER, dict(config.MSG91_FLOWS))
+        try:
+            config.SMS_PROVIDER, config.WHATSAPP_PROVIDER = "msg91", "meta"
+            for k in config.MSG91_FLOWS:
+                config.MSG91_FLOWS[k] = ""
+            config.MSG91_FLOWS.update(login_otp="flow-otp", door_code="flow-door")
+            self.assertEqual(notify.channels_for("9811111111", "door_code", "sms"), ["sms"])
+            self.assertEqual(notify.channels_for("9811111111", "referral_reward", "sms"), ["whatsapp"])
+            self.assertIn("sms", auth.otp_channels())
+        finally:
+            config.SMS_PROVIDER, config.WHATSAPP_PROVIDER = saved[0], saved[1]
+            config.MSG91_FLOWS.clear(); config.MSG91_FLOWS.update(saved[2])
+            config.DEMO_MODE = True

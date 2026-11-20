@@ -190,23 +190,67 @@ class MemberTests(Base):
 
 
 class AuthTests(Base):
-    def test_otp_login(self):
-        code, is_new, _ = self.run_quiet(auth.request_login_code, "+91 90000 00004")
-        self.assertFalse(is_new)
+    def test_guest_code_login(self):
+        code, is_new, _ = self.run_quiet(auth.request_login_code, "+91 98123 45678")
+        self.assertTrue(is_new)
         with self.assertRaises(auth.AuthError):
-            auth.verify_login_code("9000000004", "000000" if code != "000000" else "111111")
-        token = auth.verify_login_code("9000000004", code)
-        u = auth.user_for(token)
-        self.assertEqual(u["name"], "Ishaan Verma")
-        s = members.status(u["id"])
-        self.assertEqual(s["academy"][0]["batch"], "Junior Badminton — Evening")
+            auth.verify_login_code("9812345678", "000000" if code != "000000" else "111111", "Neha")
+        self.assertEqual(auth.user_for(auth.verify_login_code("9812345678", code, "Neha"))["name"], "Neha")
 
-    def test_login_with_member_id(self):
-        ishaan = db.one("SELECT id FROM users WHERE phone='9000000004'")["id"]
-        mid = auth.member_id(ishaan)
-        code, _, phone = self.run_quiet(auth.request_login_code, mid.lower().replace("-", ""))
-        self.assertEqual(phone, "9000000004")
-        self.assertEqual(auth.user_for(auth.verify_login_code(mid, code))["id"], ishaan)
+    def test_members_and_academy_players_cannot_use_the_code_route(self):
+        for phone in ("9000000001", "9000000004"):                     # member, academy player
+            with self.assertRaises(auth.AuthError):
+                self.run_quiet(auth.request_login_code, phone)
+        self.assertEqual(db.all_("SELECT 1 FROM notifications WHERE kind='login_otp'"), [])   # no code wasted
+        with self.assertRaises(auth.AuthError):
+            self.run_quiet(auth.request_login_code, "NR-0002")
+
+    def test_member_password_login_by_id_username_or_mobile(self):
+        for ident in ("NR-0002", "nr2", "AARAV", "9000000001"):
+            token, must_change = auth.member_login(ident, "member123")
+            self.assertEqual((auth.user_for(token)["name"], must_change), ("Aarav Mehta", False))
+        with self.assertRaises(auth.AuthError):
+            auth.member_login("NR-0002", "wrong-password")
+
+    def test_temporary_password_must_be_changed_first(self):
+        token, must_change = auth.member_login("NR-0005", "welcome1")       # Ishaan, temp from the reception
+        self.assertTrue(must_change)
+        uid = auth.user_for(token)["id"]
+        for bad in ("short", "welcome1"):                                    # too short / same as the temp
+            with self.assertRaises(auth.AuthError):
+                auth.change_member_credentials(uid, "welcome1", bad)
+        with self.assertRaises(auth.AuthError):
+            auth.change_member_credentials(uid, "wrong", "a-good-password")
+        with self.assertRaises(auth.AuthError):                              # someone else's username
+            auth.change_member_credentials(uid, "welcome1", "a-good-password", "aarav")
+        with self.assertRaises(auth.AuthError):                              # looks like a member ID
+            auth.change_member_credentials(uid, "welcome1", "a-good-password", "nr-0009")
+        auth.change_member_credentials(uid, "welcome1", "a-good-password", "Ishaan.V")
+        token, must_change = auth.member_login("ishaan.v", "a-good-password")
+        self.assertFalse(must_change)
+        with self.assertRaises(auth.AuthError):
+            auth.member_login("NR-0005", "welcome1")                         # the temp no longer works
+
+    def test_staff_issue_and_reset_logins(self):
+        kabir = db.one("SELECT id FROM users WHERE phone='9000000003'")["id"]
+        with self.assertRaises(auth.AuthError):
+            auth.member_login("NR-0004", "anything")                         # no login created yet
+        temp = auth.issue_member_login(kabir)
+        self.assertEqual(len(temp), 8)
+        token, must_change = auth.member_login(auth.member_id(kabir), temp)
+        self.assertTrue(must_change)
+        auth.issue_member_login(kabir, "reset123")                            # reset signs them out
+        self.assertIsNone(auth.user_for(token))
+        self.assertTrue(auth.member_login(auth.member_id(kabir), "reset123")[1])
+
+    def test_wrong_passwords_lock_the_login_for_a_while(self):
+        for _ in range(auth.PW_MAX_FAILS):
+            with self.assertRaises(auth.AuthError):
+                auth.member_login("NR-0002", "nope")
+        with self.assertRaises(auth.AuthError):
+            auth.member_login("NR-0002", "member123")                        # even the right one, for now
+        clock.set_now(T0 + timedelta(minutes=auth.PW_LOCK_MIN + 1))
+        self.assertTrue(auth.member_login("NR-0002", "member123")[0])
 
     def test_new_number_signs_up(self):
         code, is_new, _ = self.run_quiet(auth.request_login_code, "9876543210")

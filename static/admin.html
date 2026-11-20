@@ -65,6 +65,7 @@
           <div><label>Name</label><input id="w-name"></div>
           <div><label>Mobile</label><input id="w-phone" inputmode="tel"></div>
           <div><label>Email (optional)</label><input id="w-email" type="email"></div>
+          <div><label>Send their messages by</label><select id="w-chan"><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option></select></div>
         </div>
         <div id="w-pay" class="hidden" style="margin-top:14px">
           <div class="row"><div><label>Paid by</label><div class="methods" id="w-method"></div></div>
@@ -128,10 +129,9 @@
           <div><label>Name</label><input id="pf-name"></div>
           <div><label>Mobile</label><input id="pf-phone" inputmode="tel"></div>
           <div><label>Email</label><input id="pf-email"></div>
-          <div data-lockonly><label>Fingerprint ID on the lock</label><input id="pf-lock"></div>
+          <div data-lockonly><label>User ID on the door terminal (face enrolled)</label><input id="pf-lock" placeholder="e.g. 101"></div>
           <div><label>Guardian (juniors)</label><input id="pf-guardian"></div>
-          <div><label>Reminders via</label><div class="row"><label class="check"><input type="checkbox" id="pf-sms" checked>SMS</label>
-            <label class="check"><input type="checkbox" id="pf-wa" checked>WhatsApp</label></div></div>
+          <div><label>Messages by</label><select id="pf-chan"><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option></select></div>
         </div>
         <div class="row" style="margin-top:14px"><button id="pf-save">Save</button><button class="ghost" id="pf-cancel">Cancel</button></div>
       </div>
@@ -198,7 +198,7 @@
       <div class="page-head"><div><div class="eyebrow">Access</div><h1 style="margin-top:4px">Door</h1></div></div>
       <div class="card"><h2>Test the door</h2>
         <div class="row" style="flex-wrap:nowrap"><input id="d-code" inputmode="numeric" maxlength="8" placeholder="Booking code"><button id="d-code-go">Try code</button></div>
-        <div class="row" style="flex-wrap:nowrap;margin-top:10px"><input id="d-fp" placeholder="Fingerprint ID, e.g. 101"><button id="d-fp-go" class="ghost">Try finger</button></div>
+        <div class="row" style="flex-wrap:nowrap;margin-top:10px"><input id="d-fp" placeholder="Terminal user ID, e.g. 101"><button id="d-fp-go" class="ghost">Try finger</button></div>
         <div id="d-result" style="margin-top:14px"></div></div>
       <div class="card"><h2>Access log</h2><div class="table-scroll"><table id="d-log"></table></div></div>
     </section>
@@ -387,7 +387,7 @@ $("#w-close").onclick = () => $("#new-card").classList.add("hidden");
 $("#w-go").onclick = async () => {
   try {
     const r = await api("/api/admin/bookings", { court_id: $("#w-court").value, date: $("#t-date").value, start: $("#w-start").value,
-      slots: +$("#w-slots").value, name: $("#w-name").value, phone: $("#w-phone").value, email: $("#w-email").value, mode: A.mode,
+      slots: +$("#w-slots").value, name: $("#w-name").value, phone: $("#w-phone").value, email: $("#w-email").value, mode: A.mode, channel: $("#w-chan").value,
       method: A.methods["w-method"], received: A.mode === "desk_paid" ? $("#w-received").value : null });
     toast(`Booked ${r.booking.ref}.`); $("#w-name").value = $("#w-phone").value = $("#w-email").value = "";
     $("#new-card").classList.add("hidden"); refresh();
@@ -475,7 +475,7 @@ function openForm(p) {
   $("#p-form-h").textContent = p ? "Edit " + p.name : "Add person";
   $("#pf-name").value = p?.name || ""; $("#pf-phone").value = p?.phone || ""; $("#pf-email").value = p?.email || "";
   $("#pf-lock").value = p?.lock_user_id || ""; $("#pf-guardian").value = p?.guardian_name || "";
-  $("#pf-sms").checked = p ? !!p.sms_opt : true; $("#pf-wa").checked = p ? !!p.wa_opt : true;
+  $("#pf-chan").value = (p && (p.pref_channel || (p.sms_opt && !p.wa_opt ? "sms" : null))) || A.cfg.default_channel || "whatsapp";
   $("#p-form").classList.remove("hidden"); $("#pf-name").focus();
 }
 $("#p-new").onclick = () => openForm(null);
@@ -483,7 +483,7 @@ $("#pf-cancel").onclick = () => $("#p-form").classList.add("hidden");
 $("#pf-save").onclick = async () => {
   try {
     await api("/api/admin/people", { name: $("#pf-name").value, phone: $("#pf-phone").value, email: $("#pf-email").value,
-      lock_user_id: $("#pf-lock").value, guardian_name: $("#pf-guardian").value, sms_opt: $("#pf-sms").checked, wa_opt: $("#pf-wa").checked });
+      lock_user_id: $("#pf-lock").value, guardian_name: $("#pf-guardian").value, pref: $("#pf-chan").value });
     toast("Saved"); $("#p-form").classList.add("hidden"); loadPeople();
   } catch (e) { toast(e.message, true); }
 };

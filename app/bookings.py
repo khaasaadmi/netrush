@@ -127,7 +127,7 @@ def _validate(court_id, day, start_hhmm, slots, name, phone):
 
 
 def _insert(c, court, day, start, end, name, phone, amount, status, pay_status, source, email=None,
-            hold=None, discount=0, utm=None, heard=None):
+            hold=None, discount=0, utm=None, heard=None, channel=None):
     if _live_bookings(c, [court["id"]], start, end):
         raise BookingError("Sorry, that slot has just been booked. Please pick another.")
     if (reason := _blocked(_blocks(c, [court["id"]], day), court["id"], start, end)):
@@ -137,11 +137,12 @@ def _insert(c, court, day, start, end, name, phone, amount, status, pay_status, 
         hold = clock.now() + timedelta(minutes=config.HOLD_MIN)
     return c.execute(
         "INSERT INTO bookings(ref,court_id,user_id,name,phone,start,end,amount,status,hold_until,created_at,"
-        "pay_status,source,email,access_key,discount,utm,heard) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "pay_status,source,email,access_key,discount,utm,heard,notify_channel) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (secrets.token_hex(3).upper(), court["id"], user and user["id"], name, phone, clock.fmt(start),
          clock.fmt(end), amount - discount, status, hold and clock.fmt(hold), clock.fmt(clock.now()), pay_status,
          source, email, secrets.token_urlsafe(12), discount, (utm or "")[:60] or None,
-         (heard or "")[:40] or None)).lastrowid
+         (heard or "")[:40] or None, channel if channel in ("whatsapp", "sms") else None)).lastrowid
 
 
 def first_booking_pct(phone, session_user):
@@ -167,7 +168,7 @@ def reserve_deadline(start):
 
 
 def create(court_id, day, start_hhmm, slots, name, phone, email=None, mode="pay", session_user=None, utm=None,
-           heard=None):
+           heard=None, channel=None):
     """Online booking by a guest. mode 'pay': hold the slot and open a payment.
     mode 'reserve': hold it for RESERVE_HOLD_HOURS, to be confirmed by paying or calling."""
     if mode not in ("pay", "reserve"):
@@ -182,18 +183,18 @@ def create(court_id, day, start_hhmm, slots, name, phone, email=None, mode="pay"
                                "reserved. Please pay now to book it.")
         with db.tx() as c:
             bid = _insert(c, court, day, start, end, name, phone, amount, "reserved", "unpaid", "online", email,
-                          hold=deadline, discount=discount, utm=utm, heard=heard)
+                          hold=deadline, discount=discount, utm=utm, heard=heard, channel=channel)
         b = get(bid)
         notify.send("reservation_received", phone, {
             "name": name.split()[0], "ref": b["ref"], "court": b["court_name"], "when": _when(b),
             "deadline": deadline.strftime("%H:%M on %a %d %b"), "phone": config.ARENA_PHONE,
-            "amount": f"Rs {b['amount']}"}, dedupe_key=f"reserve:{bid}")
+            "amount": f"Rs {b['amount']}"}, dedupe_key=f"reserve:{bid}", booking_channel=b["notify_channel"])
         return {"booking": b, "payment": None}
     if not config.ONLINE_PAY:
         raise BookingError("Online payment isn't available yet. Please reserve the slot and pay at the venue.")
     with db.tx() as c:
         bid = _insert(c, court, day, start, end, name, phone, amount, "pending", "unpaid", "online", email,
-                      discount=discount, utm=utm, heard=heard)
+                      discount=discount, utm=utm, heard=heard, channel=channel)
     b = get(bid)
     return {"booking": b, "payment": start_payment(b)}
 
@@ -244,7 +245,7 @@ def balance(b):
 
 
 def create_by_staff(court_id, day, start_hhmm, slots, name, phone, mode, staff, email=None, method="cash",
-                    received=None):
+                    received=None, channel=None):
     if mode not in STAFF_MODES:
         raise BookingError("Choose how this booking is paid")
     court, day, start, end, name, phone, amount = _validate(court_id, day, start_hhmm, slots, name, phone)
@@ -257,7 +258,8 @@ def create_by_staff(court_id, day, start_hhmm, slots, name, phone, mode, staff, 
     if mode == "desk_paid" and received < amount:
         pay_status = "unpaid"  # balance still to collect
     with db.tx() as c:
-        bid = _insert(c, court, day, start, end, name, phone, amount, "confirmed", pay_status, source, email)
+        bid = _insert(c, court, day, start, end, name, phone, amount, "confirmed", pay_status, source, email,
+                      channel=channel)
         c.execute("UPDATE bookings SET payment_ref=?, paid_at=? WHERE id=?",
                   (f"{mode.upper()}-{staff}", clock.fmt(clock.now()) if pay_status == "paid" else None, bid))
     if mode == "desk_paid":
@@ -325,7 +327,7 @@ def _on_confirmed(booking_id):
     notify.send("booking_confirmed", b["phone"], {
         "name": b["name"].split()[0], "ref": b["ref"], "court": b["court_name"],
         "when": _when(b), "lead": config.DOOR_CODE_LEAD_MIN,
-    }, dedupe_key=f"booking:{b['id']}")
+    }, dedupe_key=f"booking:{b['id']}", booking_channel=b["notify_channel"])
     access.issue_due_codes()  # booked at the last minute? the code goes out right now
     return get(booking_id)
 
@@ -399,7 +401,7 @@ def cancel(booking_id, by="customer"):
             refund = "Nothing was charged."
         notify.send("booking_cancelled", b["phone"], {
             "name": b["name"].split()[0], "ref": b["ref"], "court": b["court_name"], "when": _when(b),
-            "refund": refund}, dedupe_key=f"cancel:{booking_id}")
+            "refund": refund}, dedupe_key=f"cancel:{booking_id}", booking_channel=b["notify_channel"])
     return {"booking": get(booking_id), "refund": q}
 
 
@@ -413,7 +415,7 @@ def expire_holds():
         if cur.rowcount == 1:
             notify.send("reservation_released", b["phone"], {
                 "name": b["name"].split()[0], "ref": b["ref"], "court": b["court_name"], "when": _when(b)},
-                dedupe_key=f"released:{b['id']}")
+                dedupe_key=f"released:{b['id']}", booking_channel=b["notify_channel"])
 
 
 def lookup(ref, phone):

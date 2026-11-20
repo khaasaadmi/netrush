@@ -1,112 +1,146 @@
-# Going live with NetRush on netrush.in
+# Running NetRush: laptop at the arena + Netlify + Firebase
 
-The site is hosted on Render and deploys itself every time `main` is pushed to GitHub
-(`khaasaadmi/netrush`). This guide takes it from the demo to the real site.
+```
+ customer's phone ──► netrush.in (Netlify: the pages)
+                          │  /api/…  forwarded
+                          ▼
+                 api.netrush.in (Cloudflare Tunnel, free)
+                          │  outbound connection from the laptop: no router ports opened
+                          ▼
+         NetRush server on the laptop / PC at the arena ◄──► ZKTeco MiniAC Plus (same network)
+           • all bookings, members and payments live here (data/netrush.db)
+           • daily backup copy (BACKUP_DIR)
+```
 
-## What is live, and what waits for an account
+- **No Render needed.** The server and every piece of customer data stay on your own machine.
+- **Netlify** only serves the pages and forwards `/api` requests; it stores nothing.
+- **Firebase** sends SMS login codes. Firebase keeps a record of the phone numbers that verify by SMS.
+- **The door works even if the internet drops.** The laptop talks to the terminal over the arena's own network.
+  Guests' codes reach them before their slot, so they already have them.
+- **If the laptop is off or offline, online booking pauses** (the pages show "briefly unavailable"). Keep it on a
+  UPS, plugged in, and wired to the router if possible.
 
-| Feature | Works at launch | Needs |
-|---|---|---|
-| Landing page, live court availability | Yes | nothing |
-| Reserve a slot (held 3 hours), confirm by phone | Yes | nothing |
-| Staff panel: bookings, cash / UPI QR / card payments, day book, members, analytics, downloads | Yes | nothing |
-| Traffic tracking per agency link | Yes | nothing |
-| **Pay now** online, buy membership online, automatic refunds | Switched off | Razorpay keys (step 4) |
-| Member / guest login, 15% first-booking discount | Switched off | an SMS provider for OTP (step 5) |
-| Confirmation and reminder messages | Not sent | WhatsApp or DLT SMS (step 6) |
-| Door codes and fingerprint entry | Switched off | the lock (`LOCK_ENABLED=1`, see README) |
+## 1. Network at the arena
 
-Each "switched off" feature hides itself on the site until its keys are added. Nothing shows a demo label.
+1. Connect the laptop and the ZKTeco terminal to the same router, by cable if possible.
+2. In the router's settings, give both a **fixed address (DHCP reservation)**, for example laptop `192.168.1.10`,
+   terminal `192.168.1.201`. On the terminal: Menu → Comm. → Ethernet shows its address.
+3. On the terminal note the **Comm Key** (Menu → Comm. → PC Connection; 0 means none).
 
-## 1. Keep the data: add a disk (do this before taking real bookings)
+## 2. The NetRush server on the laptop
 
-Render's free plan has no storage. **Every restart, deploy or sleep erases all bookings, members and payments.**
-That is fine for a demo and not for a real arena.
+1. Install **Python 3.12+ from python.org**, ticking "Install for all users" and "Add python.exe to PATH".
+   The Microsoft Store version can't start at boot.
+2. Install **Git for Windows**, then in a terminal:
+   ```bash
+   git clone https://github.com/khaasaadmi/netrush.git C:\netrush
+   ```
+3. Copy `C:\netrush\.env.example` to `C:\netrush\.env` and fill it in (staff logins, arena phone and address,
+   `ZK_IP`, `ZK_COMM_KEY`, `BACKUP_DIR`). Leave the Firebase / WhatsApp / Razorpay lines empty for now.
+4. Open **PowerShell as Administrator** and run:
+   ```bash
+   powershell -ExecutionPolicy Bypass -File C:\netrush\deploy\windows\setup.ps1
+   ```
+   It installs the ZKTeco library, switches off sleep (including with the lid closed), and makes NetRush start
+   at boot and restart itself if it ever stops. At the end it should print "NetRush is running".
+5. On the laptop open <http://localhost:8000/admin>, log in, and check **Team & health**.
 
-1. Render dashboard → the `netrush` service → **Settings → Instance Type → Starter** ($7/month).
-2. **Disks → Add Disk**: name `netrush-data`, mount path `/var/data`, size 1 GB.
-3. **Environment → Add** `DB_PATH` = `/var/data/netrush.db`.
+Later: after editing `.env` run `deploy\windows\restart.cmd`; to install a new version run `deploy\windows\update.cmd`.
 
-The Starter plan also never sleeps, so the reservation timer and reminders always run. Admin → Team & health
-shows a red "Data storage" row until this is done.
+**Moving to the PC later:** do steps 2–4 on the PC, then stop the laptop's task, copy `C:\netrush\data\netrush.db`
+across, start the PC's task, and move the Cloudflare Tunnel (step 3) to the PC.
 
-## 2. Set the live values
+## 3. Cloudflare Tunnel: makes the laptop reachable as api.netrush.in
 
-Render dashboard → service → **Environment**. Set these, then **Save, rebuild and deploy**:
+The tunnel is an outgoing connection from the laptop to Cloudflare, so no router ports are opened and your
+home/arena address stays private.
 
-| Key | Value |
-|---|---|
-| `DEMO_MODE` | `0` |
-| `SEED_DEMO` | `0` (the site starts empty: no demo people or bookings) |
-| `PUBLIC_URL` | `https://netrush.in` |
-| `ADMIN_PHONE` | the owner's mobile number (this is the admin login) |
-| `ADMIN_PASSWORD` | a strong password of your own |
-| `RECEPTION_PHONE` | the reception desk's mobile number |
-| `RECEPTION_PASSWORD` | another password |
-| `ARENA_PHONE` | the number customers call to confirm a reservation, e.g. `+91 98xxx xxxxx` |
-| `ARENA_ADDRESS` | full address, shown on the landing page |
-| `ARENA_MAPS_URL` | Google Maps link (optional) |
-| `ARENA_INSTAGRAM` | Instagram profile link (optional) |
+1. Create a free Cloudflare account and **add the netrush.in domain**. Cloudflare asks you to change the domain's
+   nameservers at the company you bought it from. Do that; it takes up to a few hours.
+2. Cloudflare dashboard → **Zero Trust → Networks → Tunnels → Create a tunnel** → Cloudflared → name `netrush`.
+3. Choose Windows. It shows a command starting `cloudflared.exe service install …`. Install cloudflared as it
+   instructs and run that command in an Administrator PowerShell on the laptop (it runs as a Windows service).
+4. Add a **public hostname**: subdomain `api`, domain `netrush.in`, service `HTTP` → `localhost:8000`.
+5. Check <https://api.netrush.in/healthz> shows `{"ok": true}`.
 
-Staff logins are created from these values the first time the site starts with an empty database. Later
-changes to staff are made in Admin → Team & health.
+## 4. Netlify: the pages at netrush.in
 
-## 3. Point netrush.in at the site
+1. Netlify → **Add new site → Import from GitHub** → `khaasaadmi/netrush`. Leave build settings empty:
+   `netlify.toml` already says "publish the `static` folder, forward `/api` to api.netrush.in".
+2. **Domain management → Add a domain** `netrush.in` (and `www`). Because the domain's DNS is now at Cloudflare,
+   add the records Netlify shows **in Cloudflare's DNS page**, with the proxy (orange cloud) switched **off** for them.
+3. Check <https://netrush.in> loads and <https://netrush.in/healthz> shows `{"ok": true}` (that one goes all the
+   way to the laptop).
 
-1. Render dashboard → service → **Settings → Custom Domains → Add** `netrush.in`, then add `www.netrush.in`.
-2. Render shows the DNS records to create. At the company where the domain was bought, open DNS settings and add:
-   - for `www`: a **CNAME** record pointing to the `…onrender.com` address Render shows;
-   - for the bare `netrush.in`: an **ALIAS / ANAME** record to the same address, or the **A** record IP Render shows.
-3. Back in Render, press **Verify**. The HTTPS certificate is issued automatically, usually within minutes.
-   DNS changes can take up to a few hours to reach everyone.
+## 5. Firebase: SMS login codes
 
-## 4. Online payments (Razorpay)
+1. <https://console.firebase.google.com> → **Add project** `netrush`.
+2. **Build → Authentication → Get started → Sign-in method → Phone → Enable.**
+3. **Authentication → Settings → Authorized domains → Add** `netrush.in`.
+4. **Project settings → General → Your apps → Add app → Web.** Copy `apiKey`, `projectId` and `appId` into
+   `.env` as `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID`, then run `restart.cmd`.
+5. Firebase sends real SMS only on the pay-as-you-go **Blaze** plan (billed per SMS). Upgrade under ⚙ → Usage and billing.
+   Set a budget alert there.
+6. Test: on <https://netrush.in/portal> choose SMS, enter your number, and log in with the code.
 
-1. Razorpay dashboard → **Account & Settings → API Keys → Generate key**.
-2. In Render → Environment set `PAYMENT_PROVIDER=razorpay`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`.
-3. Razorpay → **Webhooks → Add**: URL `https://netrush.in/api/payments/razorpay-webhook`, event
-   `payment.captured`, and a secret of your choice. Put that secret in `RAZORPAY_WEBHOOK_SECRET`.
+**What Firebase does and doesn't do:** it sends and checks *login/verification* codes only. It cannot send our own
+messages, so it can't deliver guests' door codes or booking confirmations. Those go by WhatsApp or SMS (step 6).
 
-"Pay now", online membership purchase and automatic refunds switch on as soon as the keys are in.
+## 6. WhatsApp and SMS for door codes and booking messages
 
-**Test keys on the live site:** with `rzp_test_…` keys, the payment page accepts test cards and takes no money,
-but the booking is still confirmed as paid. Use test keys only to try the flow, on a day you are not
-advertising. Admin → Team & health shows a red warning while test keys are in use. Switch to the
-`rzp_live_…` pair (available once Razorpay has approved the account's KYC) before promoting "Pay now".
+Each customer chooses **WhatsApp or SMS** when they book or log in, and gets every message **once, on that one
+channel**. If their chosen channel isn't connected, the other one is used so nobody misses a door code.
 
-## 5. OTP for login and the first-booking discount
+- **WhatsApp** (usually the cheaper choice in India): a WhatsApp Business number on Meta's Cloud API, with approved
+  message templates named as in `.env.example`. Set `WHATSAPP_PROVIDER=meta`, `WA_TOKEN`, `WA_PHONE_NUMBER_ID`.
+  WhatsApp login codes need an "authentication" category template.
+- **SMS**: MSG91 (or Twilio) with DLT-registered templates, one per message type. Set `SMS_PROVIDER=msg91` and
+  the flow IDs.
 
-OTP is used in two places only: member/guest login, and proving a number for the 15% first-booking discount.
-Ordinary booking needs no OTP.
+Template approvals take a few days. Until a channel is connected, customers only see their confirmation on screen.
+**Guests can't receive door codes until at least one channel is connected.**
 
-The quickest provider for India is 2Factor.in (no DLT paperwork for OTP): create an account, copy the API key,
-and set `SMS_PROVIDER=2factor` and `TWOFACTOR_API_KEY`. This connection is written from 2Factor's
-documentation and has not yet been run against a real account, so send yourself one login code before
-announcing it.
+## 7. ZKTeco MiniAC Plus: one-time terminal setup (with your installer)
 
-## 6. Confirmation and reminder messages
+The server keeps the terminal in step automatically: every 30 seconds it adds the door codes whose window is open,
+removes finished or cancelled ones, blocks or unblocks members, and reads the entry log.
 
-Booking confirmations, reservation deadlines, membership reminders and refund notices need either a WhatsApp
-Business (Cloud API) number with approved templates, or DLT-registered SMS templates through MSG91. Both
-take a few days of approvals. The template names and settings are in `.env.example`. Until then customers
-see their confirmation on screen, and staff see every booking in the panel.
+1. **Access groups** (Menu → Access Control): group **1** with a time zone covering opening hours (who may enter),
+   and group **2** with a time zone that never allows entry (lapsed members). These match `ZK_ACTIVE_GROUP=1`
+   and `ZK_BLOCKED_GROUP=2`.
+2. **Members** enrol their face on the terminal once, at the desk. Note the **user ID** the terminal gives them and
+   enter it in Admin → People → Edit → "User ID on the door terminal". From then on their access follows their
+   membership automatically. Their face stays enrolled while they're blocked.
+3. **Guests' codes:** each code is added as a temporary user whose user ID and password are both the code. Ask the
+   installer to confirm **what a guest types at the keypad**, then put those exact words in `DOOR_KEYPAD_STEPS`
+   (it is printed in the door-code message). Test it with a real booking before launch.
+4. Admin → Team & health shows a "Door terminal (ZKTeco)" row: green when the last sync worked.
 
-## 7. Marketing links
+The terminal driver uses the standard ZKTeco network protocol (port 4370) and was built and tested against a
+simulated terminal. Test it on the real terminal before relying on it: make a booking for 15 minutes ahead, wait
+until 10 minutes before, and type the code; then expire a test member and check they're blocked.
 
-Admin → Analytics → **Tracking link for an agency or campaign** builds a link per partner, for example
-`https://netrush.in/?utm_source=brightads&utm_campaign=launch`. Give each agency its own. Analytics then shows
-visitors, bookings and revenue per source, and the same table downloads as a spreadsheet.
+## 8. Online payments (Razorpay)
+
+Leave `PAYMENT_PROVIDER=mock` until Razorpay is ready: the site then hides "Pay now" and offers
+reserve-and-pay-at-venue only. When ready, set `PAYMENT_PROVIDER=razorpay`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`,
+and add a webhook (event `payment.captured`) to `https://netrush.in/api/payments/razorpay-webhook` with its secret in
+`RAZORPAY_WEBHOOK_SECRET`. Test keys (`rzp_test_…`) take no money but still mark bookings paid, so use them only
+for a quiet test; the health page shows a red warning while they're in.
+
+## 9. Backups
+
+The server saves a copy of the database every day into `BACKUP_DIR` and keeps 30 days. Point `BACKUP_DIR` at a
+folder that leaves the laptop, such as a Google Drive or OneDrive folder synced on that machine, or a USB drive.
+To restore: stop the task, copy a backup over `data\netrush.db`, start the task.
 
 ## Launch-day checklist
 
-1. `https://netrush.in/healthz` shows `{"ok": true}`.
-2. Log in at `/admin` as the admin. **Team & health** should show no red rows.
-3. Make a test reservation on your own phone, confirm it from the receptionist login, then cancel it.
-4. Record a ₹1 "other" payment under Payments, and check it appears in the day book.
-5. Open an agency link in a private window, and check the visit appears under Analytics.
-
-## A private demo copy
-
-To keep a demo for showing people, create a second Render service from the same repository with
-`DEMO_MODE=1`. It loads demo data, shows login codes on screen, uses a mock payment page, and adds a
-`/demo` page that displays every message. Never set `DEMO_MODE=1` on the real site.
+1. <https://netrush.in/healthz> shows `{"ok": true}`.
+2. Admin → **Team & health**: no red rows (staff passwords set, terminal reachable, backup done).
+3. Book a slot for later today on your own phone, choosing WhatsApp; book another choosing SMS. Each message
+   arrives once, on the chosen channel.
+4. 10 minutes before the slot, the door code arrives. Type it on the terminal: the door opens.
+5. Log in to the portal with an SMS code (Firebase) and with a WhatsApp code.
+6. Turn the laptop's Wi-Fi/cable off for a minute: the pages show "briefly unavailable", and the door still
+   opens for a member's face. Reconnect.

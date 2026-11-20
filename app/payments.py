@@ -195,7 +195,7 @@ def process_refunds():
         notify.send("refund_issued", p["phone"], {
             "amount": f"Rs {p['refund_amount']}", "what": _describe(p),
             "days": "5-7 working days" if p["provider"] == "razorpay" else "a few minutes",
-        }, dedupe_key=f"refund:{p['id']}")
+        }, dedupe_key=f"refund:{p['id']}", booking_channel=_booking_channel(p))
         done.append(p["id"])
     return done
 
@@ -213,6 +213,13 @@ def mark_manual_refund_done(payment_row_id, staff):
                       "AND refund_status IN ('manual','failed')",
                       ("HANDED-BACK-" + staff, clock.fmt(clock.now()), payment_row_id))
     return get(payment_row_id)
+
+
+def _booking_channel(p):
+    if p["kind"] != "booking":
+        return None
+    b = db.one("SELECT notify_channel FROM bookings WHERE id=?", p["ref_id"])
+    return b and b["notify_channel"]
 
 
 def _describe(p):

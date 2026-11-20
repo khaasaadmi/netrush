@@ -26,11 +26,14 @@ _load_dotenv()
 
 
 def env(name, default=""):
-    return os.environ.get(name, default)
+    """A setting, or its default when missing OR left blank (so an empty ADMIN_PASSWORD= line can never
+    mean "no password")."""
+    v = os.environ.get(name, "").strip()
+    return v if v else default
 
 
 def env_int(name, default):
-    return int(os.environ.get(name, default))
+    return int(env(name, str(default)))
 
 
 FACILITY_NAME = env("FACILITY_NAME", "NetRush")
@@ -71,9 +74,12 @@ ARENA_INSTAGRAM = env("ARENA_INSTAGRAM", "")
 
 # Door code: works from this many minutes before the slot until the slot ends.
 DOOR_CODE_LEAD_MIN = env_int("DOOR_CODE_LEAD_MIN", 10)
-# 1 = send the code with the booking confirmation (it still only opens the door inside its window),
-# plus a reminder DOOR_CODE_LEAD_MIN before start. 0 = send it only DOOR_CODE_LEAD_MIN before start.
-DOOR_CODE_AT_BOOKING = env("DOOR_CODE_AT_BOOKING", "1") == "1"
+# 0 = the guest's door code is sent once, DOOR_CODE_LEAD_MIN before the slot (one message per booking).
+# 1 = also send it with the booking confirmation (it still only opens the door inside its window).
+DOOR_CODE_AT_BOOKING = env("DOOR_CODE_AT_BOOKING", "0") == "1"
+# Face-recognition entry is for members (monthly / club membership). 1 = academy players with paid
+# fees get it too.
+ACADEMY_DOOR_ACCESS = env("ACADEMY_DOOR_ACCESS", "0") == "1"
 DOOR_CODE_GRACE_MIN = env_int("DOOR_CODE_GRACE_MIN", 0)  # extra minutes after slot end
 DOOR_CODE_DIGITS = env_int("DOOR_CODE_DIGITS", 6)
 
@@ -86,7 +92,7 @@ SMS_PROVIDER = env("SMS_PROVIDER", "console")            # console | twilio | ms
 TWOFACTOR_API_KEY = env("TWOFACTOR_API_KEY")
 TWOFACTOR_TEMPLATE = env("TWOFACTOR_TEMPLATE", "OTP1")
 WHATSAPP_PROVIDER = env("WHATSAPP_PROVIDER", "console")  # console | meta
-LOCK_PROVIDER = env("LOCK_PROVIDER", "console")          # console | http_bridge | ttlock
+LOCK_PROVIDER = env("LOCK_PROVIDER", "console")          # zkteco | console | http_bridge | ttlock
 PAYMENT_PROVIDER = env("PAYMENT_PROVIDER", "mock")       # mock | razorpay
 
 TWILIO_SID = env("TWILIO_SID")
@@ -123,6 +129,21 @@ WA_TEMPLATES = {
     "membership_confirmed": env("WA_TPL_MEMBERSHIP_OK", "membership_confirmed"),
 }
 
+# ZKTeco MiniAC Plus terminal on the arena's network (Menu → Comm. → Ethernet shows its IP).
+ZK_IP = env("ZK_IP", "192.168.1.201")
+ZK_PORT = env_int("ZK_PORT", 4370)
+ZK_COMM_KEY = env_int("ZK_COMM_KEY", 0)        # Menu → Comm. → PC Connection → Comm Key (0 = none)
+# Access groups set up once on the terminal (Menu → Access Control): members with paid-up plans and
+# door codes go in the first; lapsed members in the second, whose time zone never allows entry.
+ZK_ACTIVE_GROUP = env("ZK_ACTIVE_GROUP", "1")
+ZK_BLOCKED_GROUP = env("ZK_BLOCKED_GROUP", "2")
+ZK_LOG_EVERY_MIN = env_int("ZK_LOG_EVERY_MIN", 2)   # how often the entry log is read
+ZK_LOG_DAYS = env_int("ZK_LOG_DAYS", 3)        # only log records this recent are imported
+ZK_CLEAR_LOGS = env("ZK_CLEAR_LOGS", "0") == "1"    # empty the terminal's log after importing it
+# What the door-code message tells people to do at the keypad. Confirm the exact steps on your terminal.
+DOOR_KEYPAD_STEPS = env("DOOR_KEYPAD_STEPS",
+                        "At the door keypad type the code, press OK, then type it again and press OK.")
+
 LOCK_BRIDGE_URL = env("LOCK_BRIDGE_URL")        # http_bridge: your on-site bridge service
 LOCK_BRIDGE_SECRET = env("LOCK_BRIDGE_SECRET")
 TTLOCK_API = env("TTLOCK_API", "https://euapi.ttlock.com")
@@ -132,6 +153,13 @@ TTLOCK_LOCK_ID = env("TTLOCK_LOCK_ID")
 
 # Shared secret the door device uses to sign /api/lock/* calls (see access.py).
 DEVICE_SECRET = env("DEVICE_SECRET", "change-me-device-secret")
+# How the door controller proves itself on /api/lock/*:
+#   hmac — signed requests (X-Timestamp / X-Signature), for controllers we program ourselves
+#   ip   — the controller's LAN address is on LOCK_ALLOWED_IPS (most bought controllers can't sign)
+# Either way the lock API only answers requests made directly on the local network, never ones that
+# came in through the internet (Netlify / Cloudflare Tunnel).
+LOCK_AUTH = env("LOCK_AUTH", "hmac")
+LOCK_ALLOWED_IPS = [x.strip() for x in env("LOCK_ALLOWED_IPS", "").split(",") if x.strip()]
 
 RAZORPAY_KEY_ID = env("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_SECRET")
@@ -150,6 +178,22 @@ RAZORPAY_TEST_KEYS = PAYMENT_PROVIDER == "razorpay" and RAZORPAY_KEY_ID.startswi
 
 # Behind a hosting proxy (Render, Railway, nginx…) the client's IP is the last X-Forwarded-For entry.
 TRUST_PROXY = env("TRUST_PROXY", "0") == "1"
+# Behind Netlify + Cloudflare Tunnel the real visitor address arrives in a named header instead
+# (e.g. X-Nf-Client-Connection-Ip). Only used for rate limiting.
+CLIENT_IP_HEADER = env("CLIENT_IP_HEADER", "")
+
+# Firebase Phone Auth: sends SMS login / verification codes (Firebase console → Project settings).
+FIREBASE_PROJECT_ID = env("FIREBASE_PROJECT_ID")
+FIREBASE_API_KEY = env("FIREBASE_API_KEY")
+FIREBASE_AUTH_DOMAIN = env("FIREBASE_AUTH_DOMAIN", f"{FIREBASE_PROJECT_ID}.firebaseapp.com" if FIREBASE_PROJECT_ID else "")
+FIREBASE_APP_ID = env("FIREBASE_APP_ID")
+
+# Each customer picks ONE channel (WhatsApp or SMS) for codes and messages. Used when they haven't.
+DEFAULT_CHANNEL = env("DEFAULT_CHANNEL", "whatsapp")
+
+# Daily copy of the database (keep this folder on another drive or a synced Google Drive / OneDrive folder).
+BACKUP_DIR = env("BACKUP_DIR", str(ROOT / "data" / "backups"))
+BACKUP_KEEP_DAYS = env_int("BACKUP_KEEP_DAYS", 30)
 
 ADMIN_PHONE = env("ADMIN_PHONE", "9999999999")
 ADMIN_PASSWORD = env("ADMIN_PASSWORD", "admin123")

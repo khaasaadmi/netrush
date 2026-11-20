@@ -206,10 +206,10 @@ def _rich(c, today, core_ids):
     msgs = [
         (-6, "membership_reminder", "9000000013",
          "Hi Aditya, your Badminton Monthly membership ends in 7 days. Renew online at " + config.PUBLIC_URL
-         + "/portal or at the desk to keep your fingerprint access active."),
+         + "/portal or at the desk to keep your door access active."),
         (-7, "membership_reminder", "9000000015",
          "Hi Farhan, your All-Access Monthly membership ends today. Renew online at " + config.PUBLIC_URL
-         + "/portal or at the desk to keep your fingerprint access active."),
+         + "/portal or at the desk to keep your door access active."),
         (-4, "academy_fee_reminder", "9000000023",
          "Hi Myra, academy fees for Junior Badminton are paid until " + d(-4) + " and ends today. "
          "Please renew to continue training."),

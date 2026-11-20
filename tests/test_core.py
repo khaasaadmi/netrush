@@ -92,18 +92,17 @@ class DoorCodeTests(Base):
     def test_code_only_inside_window_and_only_when_paid(self):
         unpaid = self.run_quiet(bookings.create, "K2", "2026-09-28", "10:00", 1, "U", "9833333333")
         b = self.book_and_pay("K1", "10:00")                               # 08:00, two hours ahead
-        self.assertEqual(len(self.sent("door_code")), 2)                   # code sent with confirmation
-        self.assertIsNone(db.one("SELECT 1 AS x FROM door_codes WHERE booking_id=?", unpaid["booking"]["id"]))
-        code = db.one("SELECT code FROM door_codes WHERE booking_id=?", b["id"])["code"]
+        self.assertEqual(len(self.sent("door_code")), 0)                   # nothing at booking time
         clock.set_now(datetime(2026, 9, 28, 9, 49))
-        self.assertFalse(access.verify_code(code)["open"])                 # 11 min before: door stays shut
-        self.run_quiet(access.issue_due_codes)
-        self.assertEqual(len(self.sent("door_code")), 2)                   # no reminder yet
+        self.assertEqual(self.run_quiet(access.issue_due_codes), [])       # 11 min before: not yet
         clock.set_now(datetime(2026, 9, 28, 9, 50))
-        self.assertEqual(self.run_quiet(access.issue_due_codes), [])       # idempotent
-        self.assertEqual(len(self.sent("door_code")), 4)                   # reminder as the window opens
+        issued = self.run_quiet(access.issue_due_codes)                    # 10 min before: sent, once
+        self.assertEqual([i["booking_id"] for i in issued], [b["id"]])     # the unpaid one gets nothing
+        self.assertIsNone(db.one("SELECT 1 AS x FROM door_codes WHERE booking_id=?", unpaid["booking"]["id"]))
+        self.assertEqual(len(self.sent("door_code")), 1)
         self.run_quiet(access.issue_due_codes)
-        self.assertEqual(len(self.sent("door_code")), 4)                   # only once
+        self.assertEqual(len(self.sent("door_code")), 1)                   # only once
+        code = db.one("SELECT code FROM door_codes WHERE booking_id=?", b["id"])["code"]
 
         self.assertTrue(access.verify_code(code)["open"])
         clock.set_now(datetime(2026, 9, 28, 10, 59))
@@ -116,7 +115,7 @@ class DoorCodeTests(Base):
     def test_last_minute_booking_gets_code_immediately(self):
         clock.set_now(datetime(2026, 9, 28, 9, 57))
         self.book_and_pay("P1", "10:00")
-        self.assertEqual(len(self.sent("door_code")), 2)
+        self.assertEqual(len(self.sent("door_code")), 1)
 
     def test_cancel_revokes(self):
         clock.set_now(datetime(2026, 9, 28, 9, 55))
@@ -167,15 +166,15 @@ class MemberTests(Base):
         self.run_quiet(members.send_reminders)
         rem = self.sent("membership_reminder")
         bodies = " | ".join(r["body"] for r in rem)
-        self.assertEqual(len(rem), 4)                                      # Aarav + Diya × SMS + WhatsApp
+        self.assertEqual(len(rem), 2)                                      # Aarav + Diya, one channel each
         self.assertIn("ends in 7 days", bodies)
         self.assertIn("ends today", bodies)
-        self.assertEqual(len(self.sent("academy_fee_reminder")), 2)        # Ishaan, fee due in 7 days
+        self.assertEqual(len(self.sent("academy_fee_reminder")), 1)        # Ishaan, fee due in 7 days
         self.run_quiet(members.send_reminders)
-        self.assertEqual(len(self.sent("membership_reminder")), 4)         # no repeats
+        self.assertEqual(len(self.sent("membership_reminder")), 2)         # no repeats
         clock.set_now(T0 + timedelta(days=7))                              # Aarav's last day
         self.run_quiet(members.send_reminders)
-        self.assertEqual(len(self.sent("membership_reminder")), 6)
+        self.assertEqual(len(self.sent("membership_reminder")), 3)
 
     def test_renewed_member_gets_no_reminder(self):
         aarav = db.one("SELECT id FROM users WHERE phone='9000000001'")

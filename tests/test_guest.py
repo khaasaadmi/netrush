@@ -16,13 +16,13 @@ class ReserveTests(Base):
     def test_reservation_holds_slot_three_hours_then_releases(self):
         b = self.reserve()                                                  # 08:00 for a 20:00 slot
         self.assertEqual((b["status"], b["hold_until"]), ("reserved", "2026-09-28 11:00"))
-        self.assertEqual(len(self.sent("reservation_received")), 2)
+        self.assertEqual(len(self.sent("reservation_received")), 1)
         with self.assertRaises(bookings.BookingError):                      # slot is held
             self.run_quiet(bookings.create, "P1", "2026-09-28", "20:00", 1, "Other", "9822222222")
         clock.set_now(T0 + timedelta(hours=3, minutes=1))
         self.run_quiet(bookings.expire_holds)
         self.assertEqual(bookings.get(b["id"])["status"], "expired")
-        self.assertEqual(len(self.sent("reservation_released")), 2)
+        self.assertEqual(len(self.sent("reservation_released")), 1)
         self.run_quiet(bookings.create, "P1", "2026-09-28", "20:00", 1, "Other", "9822222222")  # free again
 
     def test_reception_confirms_pay_at_venue_then_collects(self):
@@ -161,7 +161,7 @@ class BookingOnlyModeTests(Base):
             b = self.book_and_pay("P1", "20:00")
             self.assertIsNone(db.one("SELECT 1 AS x FROM door_codes WHERE booking_id=?", b["id"]))
             self.assertEqual(self.sent("door_code"), [])
-            self.assertEqual(len(self.sent("booking_confirmed")), 2)
+            self.assertEqual(len(self.sent("booking_confirmed")), 1)
             self.assertEqual(self.run_quiet(access.sync_member_access), [])
         finally:
             config.LOCK_ENABLED = True

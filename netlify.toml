@@ -1,0 +1,78 @@
+# Netlify serves the pages; everything under /api goes to the NetRush server at the arena
+# (the laptop / PC), reached through a Cloudflare Tunnel at api.netrush.in. See DEPLOY.md.
+#
+# Because the browser only ever talks to netrush.in, logins and cookies work without any
+# cross-site setup, and the server is never exposed except through the tunnel.
+
+[build]
+  publish = "static"
+  command = ""
+
+# ---- the booking server at the arena
+[[redirects]]
+  from = "/api/*"
+  to = "https://api.netrush.in/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/healthz"
+  to = "https://api.netrush.in/healthz"
+  status = 200
+  force = true
+
+# ---- pages
+[[redirects]]
+  from = "/"
+  to = "/landing.html"
+  status = 200
+
+[[redirects]]
+  from = "/book"
+  to = "/book.html"
+  status = 200
+
+[[redirects]]
+  from = "/booking"
+  to = "/booking.html"
+  status = 200
+
+[[redirects]]
+  from = "/pay"
+  to = "/pay.html"
+  status = 200
+
+[[redirects]]
+  from = "/portal"
+  to = "/portal.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin"
+  to = "/admin.html"
+  status = 200
+
+# demo-only pages are never part of the live site
+[[redirects]]
+  from = "/demo*"
+  to = "/"
+  status = 302
+  force = true
+
+[[redirects]]
+  from = "/door*"
+  to = "/"
+  status = 302
+  force = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
+
+[[headers]]
+  for = "/admin*"
+  [headers.values]
+    X-Robots-Tag = "noindex"

@@ -90,7 +90,11 @@ function render(b) {
       <p class="small muted" style="margin:4px 0 0">Pay now and just walk in.</p></div><span class="spacer"></span>
       <button class="sm" data-pay>Pay ${rupees(b.amount)} online</button></div></div>` : "";
 
-  const door = ok && CFG.lock && b.door_code ? `<div class="dark">
+  const door = ok && CFG.lock && !b.door_code ? `<div class="dark">
+      <div class="eyebrow" style="color:rgb(255 255 255 / .55)">Your door code</div>
+      <p style="margin:8px 0 0">Arrives by <b>${b.notify_channel === "sms" ? "SMS" : "WhatsApp"}</b> ${CFG.door_code_lead_min} minutes before your slot.
+        Type it on the keypad at the entrance to walk in.</p></div>`
+    : ok && CFG.lock && b.door_code ? `<div class="dark">
       <div class="eyebrow" style="color:rgb(255 255 255 / .55)">Your door code</div>
       <div class="dots">${"••••••".split("").map(() => "<i>•</i>").join("")}</div>
       <p style="margin:0">Sent to your phone by <b>SMS &amp; WhatsApp</b>. Type it on the keypad at the entrance.</p>

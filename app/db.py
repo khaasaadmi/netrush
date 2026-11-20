@@ -15,10 +15,11 @@ CREATE TABLE IF NOT EXISTS users (
     referred_by   INTEGER,                    -- user id of the member who referred them
     referral_rewarded INTEGER NOT NULL DEFAULT 0,  -- their referrer has been credited (once, ever)
     credit        INTEGER NOT NULL DEFAULT 0, -- rupees off their next membership payment
+    pref_channel  TEXT,                       -- whatsapp | sms: the ONE channel they want codes and messages on
     password_hash TEXT,                       -- admins only
     sms_opt       INTEGER NOT NULL DEFAULT 1,
     wa_opt        INTEGER NOT NULL DEFAULT 1,
-    lock_user_id  TEXT,                       -- fingerprint user id enrolled on the lock
+    lock_user_id  TEXT,                       -- their user ID on the door terminal (face enrolled there)
     lock_enabled  INTEGER NOT NULL DEFAULT 0, -- what we last told the lock
     guardian_name TEXT,                       -- academy juniors
     created_at    TEXT NOT NULL
@@ -103,7 +104,8 @@ CREATE TABLE IF NOT EXISTS bookings (
     access_key   TEXT,                          -- secret in the confirmation link (no login needed)
     discount     INTEGER NOT NULL DEFAULT 0,    -- rupees taken off (first-booking offer); amount is what's due
     utm          TEXT,                          -- where the visitor came from: "source" or "source/campaign"
-    heard        TEXT                           -- their answer to "How did you hear about us?"
+    heard        TEXT,                          -- their answer to "How did you hear about us?"
+    notify_channel TEXT                         -- whatsapp | sms, chosen by the customer when booking
 );
 CREATE INDEX IF NOT EXISTS ix_bookings_court_start ON bookings(court_id, start);
 
@@ -154,8 +156,10 @@ CREATE TABLE IF NOT EXISTS access_events (
     user_id    INTEGER,
     booking_id INTEGER,
     granted    INTEGER NOT NULL,
-    detail     TEXT
+    detail     TEXT,
+    ext_id     TEXT                -- id the door controller gave the event (stops double-counting)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ix_access_ext ON access_events(ext_id);
 
 CREATE TABLE IF NOT EXISTS notifications (
     id         INTEGER PRIMARY KEY,
@@ -226,11 +230,12 @@ _ADDED = {
         ("pay_status", "TEXT NOT NULL DEFAULT 'unpaid'"), ("source", "TEXT NOT NULL DEFAULT 'online'"),
         ("cancelled_at", "TEXT"), ("cancelled_by", "TEXT"), ("refund_amount", "INTEGER NOT NULL DEFAULT 0"),
         ("email", "TEXT"), ("access_key", "TEXT"), ("discount", "INTEGER NOT NULL DEFAULT 0"), ("utm", "TEXT"),
-        ("heard", "TEXT"),
+        ("heard", "TEXT"), ("notify_channel", "TEXT"),
     ],
     "payments": [("secret", "TEXT"), ("method", "TEXT"), ("note", "TEXT")],
     "users": [("role", "TEXT"), ("referred_by", "INTEGER"), ("referral_rewarded", "INTEGER NOT NULL DEFAULT 0"),
-              ("credit", "INTEGER NOT NULL DEFAULT 0")],
+              ("credit", "INTEGER NOT NULL DEFAULT 0"), ("pref_channel", "TEXT")],
+    "access_events": [("ext_id", "TEXT")],
 }
 
 
@@ -306,3 +311,25 @@ def reset():
     seed.ensure_online_plan(c)
     seed.ensure_reception(c)
     c.execute("COMMIT")
+
+
+def backup(folder, keep_days=30):
+    """A consistent copy of the live database (SQLite's online backup), one file per day."""
+    import datetime
+    import os
+    os.makedirs(folder, exist_ok=True)
+    today = datetime.date.today().isoformat()
+    target = os.path.join(folder, f"netrush-{today}.db")
+    if not os.path.exists(target):
+        tmp = target + ".part"
+        dst = sqlite3.connect(tmp)
+        try:
+            conn().backup(dst)
+        finally:
+            dst.close()
+        os.replace(tmp, target)
+    cutoff = (datetime.date.today() - datetime.timedelta(days=keep_days)).isoformat()
+    for f in os.listdir(folder):
+        if f.startswith("netrush-") and f.endswith(".db") and f[8:18] < cutoff:
+            os.remove(os.path.join(folder, f))
+    return target

@@ -23,8 +23,8 @@ class RefundTests(Base):
         self.assertEqual(self.run_quiet(bookings.cancel, none["id"])["refund"]["amount"], 0)
         self.assertEqual(self.paid(full)["refund_status"], "done")             # mock gateway refunds instantly
         self.assertIsNone(self.paid(none)["refund_status"])
-        self.assertEqual(len(self.sent("refund_issued")), 4)                   # 2 refunds × SMS + WhatsApp
-        self.assertEqual(len(self.sent("booking_cancelled")), 6)
+        self.assertEqual(len(self.sent("refund_issued")), 2)                   # 2 refunds, one channel each
+        self.assertEqual(len(self.sent("booking_cancelled")), 3)
         self.run_quiet(bookings.create, "P1", "2026-09-29", "10:00", 1, "X", "9844444444")  # slot free again
 
     def test_customer_cannot_cancel_after_start_staff_can_with_full_refund(self):
@@ -107,7 +107,7 @@ class OnlineMembershipTests(Base):
         self.assertEqual(m["end_date"], "2027-01-21")                      # 90 days
         again = self.run_quiet(members.complete_membership, payments.get(p["id"]))
         self.assertEqual(again["id"], m["id"])                             # checkout + webhook → fulfilled once
-        self.assertEqual(len(self.sent("membership_confirmed")), 2)
+        self.assertEqual(len(self.sent("membership_confirmed")), 1)
         with self.assertRaises(members.MemberError):
             members.order_membership(kabir["id"], 5)                       # not an offered duration
 

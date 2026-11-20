@@ -25,7 +25,7 @@ class ReferralTests(Base):
         self.assertEqual(self.credit(self.AARAV), 0)                        # signing up alone earns nothing
         self.buy_online(uid)
         self.assertEqual(self.credit(self.AARAV), config.REFERRAL_REWARD)
-        self.assertEqual(len(self.sent("referral_reward")), 2)
+        self.assertEqual(len(self.sent("referral_reward")), 1)
         self.buy_online(uid)                                                # friend renews: no second reward
         self.assertEqual(self.credit(self.AARAV), 300)
 

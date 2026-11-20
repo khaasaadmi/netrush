@@ -29,9 +29,10 @@ PARAMS = {
 
 TEXT = {
     "door_code": "Hi {name}, your entry code for {court} is {code}. Works {valid_from}-{valid_to}. "
-    "Enter it on the door keypad. Enjoy your game!",
+    + config.DOOR_KEYPAD_STEPS + " Enjoy your game!",
     "booking_confirmed": "Hi {name}, booking {ref} confirmed: {court}, {when}. " + (
-        "Your door entry code comes in a separate message and opens the door from {lead} min before start."
+        ("Your door entry code comes in a separate message and opens the door from {lead} min before start."
+         if config.DOOR_CODE_AT_BOOKING else "Your door entry code will be sent {lead} minutes before your slot.")
         if config.LOCK_ENABLED else "Show this message at the reception when you arrive. See you on court!"),
     "reservation_received": "Hi {name}, we are holding {court}, {when} for you (ref {ref}, {amount}). "
     "Confirm by {deadline}: pay online from your booking link or call {phone}. After that the slot is released.",
@@ -140,26 +141,61 @@ SENDERS = {"sms": _sms, "whatsapp": _whatsapp}
 
 # ---------- public ----------
 
-def channels_for(phone):
-    """The person's opt-ins; unknown numbers (walk-in bookers) get both."""
-    u = db.one("SELECT sms_opt, wa_opt FROM users WHERE phone=?", phone)
-    if not u:
-        return ["sms", "whatsapp"]
-    return [ch for ch, on in (("sms", u["sms_opt"]), ("whatsapp", u["wa_opt"])) if on]
+CHANNELS = ("whatsapp", "sms")
 
 
-def send(kind, phone, params, dedupe_key=None, channels=None):
+def can_send(ch, kind=""):
+    """Is a real provider connected for this channel (and message type)?"""
+    if config.DEMO_MODE:
+        return True
+    if ch == "sms":
+        if config.SMS_PROVIDER == "console":
+            return False
+        return kind == "login_otp" if config.SMS_PROVIDER == "2factor" else True
+    return config.WHATSAPP_PROVIDER != "console"
+
+
+def message_channels():
+    """Channels a customer can choose for booking messages and door codes."""
+    return [ch for ch in CHANNELS if can_send(ch, "booking_confirmed")]
+
+
+def preferred(phone, booking_channel=None):
+    """The ONE channel this person wants: the booking's choice, then their saved choice, then the
+    channel of their latest booking, then the default."""
+    if booking_channel in CHANNELS:
+        return booking_channel
+    u = db.one("SELECT pref_channel, sms_opt, wa_opt FROM users WHERE phone=?", phone)
+    if u and u["pref_channel"] in CHANNELS:
+        return u["pref_channel"]
+    if u and u["sms_opt"] != u["wa_opt"]:
+        return "sms" if u["sms_opt"] else "whatsapp"
+    b = db.one("SELECT notify_channel FROM bookings WHERE phone=? AND notify_channel IS NOT NULL "
+               "ORDER BY id DESC LIMIT 1", phone)
+    if b:
+        return b["notify_channel"]
+    return config.DEFAULT_CHANNEL if config.DEFAULT_CHANNEL in CHANNELS else "whatsapp"
+
+
+def channels_for(phone, kind="", booking_channel=None):
+    """Exactly one channel, so each message is paid for once. If the chosen channel isn't connected
+    the other one is used, so nobody is left without their door code."""
+    pref = preferred(phone, booking_channel)
+    if can_send(pref, kind):
+        return [pref]
+    other = "sms" if pref == "whatsapp" else "whatsapp"
+    if can_send(other, kind):
+        return [other]
+    return [pref]  # nothing connected yet: printed to the server log only
+
+
+def send(kind, phone, params, dedupe_key=None, channels=None, booking_channel=None):
     """Returns {channel: 'sent'|'failed'|'duplicate'}. Never raises — a messaging outage
     must not break a booking or the scheduler."""
     params = {k: params[k] for k in PARAMS[kind]}
     text = render(kind, params)
     result = {}
-    for ch in channels or channels_for(phone):
-        if ch == "sms" and config.SMS_PROVIDER == "2factor" and kind != "login_otp":
-            continue  # OTP-only SMS account: other messages go by WhatsApp (when connected)
-        if kind == "login_otp" and ch == "whatsapp" and config.WHATSAPP_PROVIDER == "console" \
-                and not config.DEMO_MODE:
-            continue
+    for ch in channels or channels_for(phone, kind, booking_channel):
         key = f"{dedupe_key}:{ch}" if dedupe_key else None
         c = db.conn()
         try:

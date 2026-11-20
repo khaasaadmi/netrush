@@ -334,3 +334,11 @@ code.big { font-size: 1.05rem; font-weight: 800; letter-spacing: .18em; font-fam
   .hero .chip { font-size: .74rem; padding: 6px 10px; }
   .bar { left: 8px; right: 8px; bottom: 8px; }
 }
+
+/* ---------- WhatsApp | SMS chooser, and the "server unreachable" strip ---------- */
+.methods { display: inline-flex; background: var(--surface-2); border-radius: 999px; padding: 4px; gap: 2px; }
+.methods button { background: transparent; color: var(--ink-2); padding: 8px 18px; font-size: .86rem; }
+.methods button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.down-bar { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); border-bottom: 1px solid var(--line); font-size: .86rem; }
+.down-bar .wrap { padding-top: 9px; padding-bottom: 9px; }
+#recaptcha-box { position: fixed; bottom: 0; right: 0; z-index: 70; }

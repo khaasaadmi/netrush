@@ -50,6 +50,33 @@ def checks():
         else:
             add(label, "ok", f"{sent} sent in the last 24h, none failed.")
 
+    # The channel each customer chose, and whether we can actually reach it.
+    from . import auth, firebase, notify
+    chans = notify.message_channels()
+    if not config.DEMO_MODE:
+        if not chans:
+            add("Customer messages", "warn", "No WhatsApp or SMS provider connected: booking confirmations and "
+                "door codes are only shown on screen.", "Connect WhatsApp (cheapest) and/or an SMS provider.")
+        elif len(chans) == 1:
+            have, other = ("WhatsApp", "SMS") if chans[0] == "whatsapp" else ("SMS", "WhatsApp")
+            add("Customer messages", "warn", f"Only {have} is connected, so customers can't choose {other}.",
+                f"Connect {other} to offer the choice.")
+        else:
+            add("Customer messages", "ok", "WhatsApp and SMS connected. Each customer gets messages on the one they chose.")
+        otp = auth.otp_channels()
+        if firebase.enabled():
+            add("SMS login codes (Firebase)", "ok", "Firebase sends SMS verification codes.")
+        if not otp:
+            add("Login codes", "warn", "No way to send verification codes: login and the first-booking discount are off.",
+                "Set up Firebase (SMS) and/or WhatsApp.")
+    last_backup, backup_err = db.kv_get("backup_day"), db.kv_get("backup_error")
+    if backup_err:
+        add("Backups", "bad", f"Today's backup failed: {backup_err}", "Check BACKUP_DIR exists and has free space.")
+    elif last_backup == clock.today().isoformat():
+        add("Backups", "ok", f"Today's copy saved: {db.kv_get('backup_file')}")
+    else:
+        add("Backups", "warn", "No backup yet today.", "It runs automatically; check the scheduler row.")
+
     # Payments and refunds.
     paid = db.one("SELECT COUNT(*) AS n FROM payments WHERE status='paid' AND provider<>'desk' AND paid_at>=?",
                   day_ago)["n"]
@@ -81,7 +108,21 @@ def checks():
     else:
         add("Refunds", "ok", "No refunds waiting.")
 
-    if not config.LOCK_ENABLED:
+    if config.LOCK_ENABLED and config.LOCK_PROVIDER == "zkteco":
+        from . import zkteco
+        st = zkteco.status()
+        if st["error"]:
+            add("Door terminal (ZKTeco)", "bad", st["error"],
+                "Check the terminal has power and network, and that ZK_IP matches Menu → Comm. → Ethernet.")
+        elif st["ok_at"]:
+            r = st["report"]
+            add("Door terminal (ZKTeco)", "ok", f"In sync at {st['ok_at'][11:]}. Last pass: {r.get('codes_added', 0)} "
+                f"code(s) added, {r.get('codes_removed', 0)} removed, {r.get('entries', 0)} entries read.")
+        else:
+            add("Door terminal (ZKTeco)", "warn", "Not reached yet.", "Wait a minute after start-up.")
+        if st["warn"]:
+            add("Door terminal: needs a look", "warn", st["warn"], "Fix on the terminal, or in People.")
+    elif not config.LOCK_ENABLED:
         add("Door lock", "ok", "Switched off for now: the site runs as booking-only. Staff let players in.")
     else:
         # Door lock.

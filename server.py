@@ -14,8 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from app import (access, analytics, auth, bookings, clock, config, db, health, members, payments, scheduler,
-                 tracking)
+from app import (access, analytics, auth, bookings, clock, config, db, firebase, health, members, notify,
+                 payments, scheduler, tracking)
 from app.auth import AuthError
 from app.bookings import BookingError
 from app.members import MemberError
@@ -70,6 +70,8 @@ def get_config(req):
             "payment_provider": config.PAYMENT_PROVIDER, "refund_policy": bookings.refund_policy_text(),
             "demo": config.DEMO_MODE, "lock": config.LOCK_ENABLED, "otp": auth.otp_available(),
             "online_pay": config.ONLINE_PAY,
+            "otp_channels": auth.otp_channels(), "message_channels": notify.message_channels(),
+            "default_channel": config.DEFAULT_CHANNEL, "firebase": firebase.client_config(),
             "first_discount_pct": config.FIRST_BOOKING_DISCOUNT_PCT, "heard_options": tracking.HEARD,
             "public_url": config.PUBLIC_URL,
             "referral_reward": config.REFERRAL_REWARD,
@@ -100,7 +102,8 @@ def post_booking(req):
     out = bookings.create(b.get("court_id"), b.get("date"), b.get("start"), b.get("slots", 1),
                           b.get("name"), b.get("phone"), b.get("email"), b.get("mode") or "pay",
                           auth.user_for(req.token), _tag(b.get("src")),
-                          b.get("heard") if b.get("heard") in tracking.HEARD else None)
+                          b.get("heard") if b.get("heard") in tracking.HEARD else None,
+                          b.get("channel"))
     bk = out["booking"]
     redirect = out["payment"]["redirect"] if out["payment"] else f"/booking?ref={bk['ref']}&k={bk['access_key']}"
     return {"booking": _public_booking(bk), "redirect": redirect}
@@ -127,6 +130,7 @@ def get_offer(req):
     if not u or u.get("role"):
         return {"verified": False, "pct": 0, "offer_pct": config.FIRST_BOOKING_DISCOUNT_PCT}
     return {"verified": True, "name": u["name"], "phone": u["phone"], "email": u["email"],
+            "pref": u.get("pref_channel"),
             "pct": bookings.first_booking_pct(u["phone"], u), "offer_pct": config.FIRST_BOOKING_DISCOUNT_PCT}
 
 
@@ -257,7 +261,7 @@ def _fulfil(p):
 
 def _public_booking(b, with_quote=False):
     keep = ("id", "ref", "court_id", "court_name", "sport", "name", "start", "end", "amount", "status", "hold_until",
-            "pay_status", "refund_amount", "cancelled_by", "phone", "email", "discount")
+            "pay_status", "refund_amount", "cancelled_by", "phone", "email", "discount", "notify_channel")
     out = {k: b.get(k) for k in keep}
     out["phone"] = out["phone"] and "******" + out["phone"][-4:]
     if b["status"] == "reserved" and b["hold_until"]:
@@ -277,7 +281,7 @@ def _public_booking(b, with_quote=False):
 
 @route("POST", "/api/auth/request-code")
 def request_code(req):
-    code, is_new, _ = auth.request_login_code(req.body.get("phone"), req.ip)
+    code, is_new, _ = auth.request_login_code(req.body.get("phone"), req.ip, req.body.get("channel"))
     out = {"ok": True, "new": is_new}
     if config.DEMO_MODE:
         out["demo_code"] = code  # demo only: no real SMS goes out, so show it
@@ -287,7 +291,18 @@ def request_code(req):
 @route("POST", "/api/auth/verify")
 def verify_code(req):
     token = auth.verify_login_code(req.body.get("phone"), req.body.get("code"), req.body.get("name"),
-                                   req.body.get("ref"))
+                                   req.body.get("ref"), req.body.get("pref"))
+    req.set_cookie = token
+    return {"ok": True}
+
+
+@route("POST", "/api/auth/firebase")
+def firebase_login(req):
+    """The browser verified an SMS code with Firebase and sends us its ID token."""
+    b = req.body
+    token = auth.login_with_firebase(b.get("id_token"), b.get("name"), b.get("ref"), b.get("pref"))
+    if token is None:
+        return {"ok": False, "need_name": True}   # new number: ask their name, then send the same token again
     req.set_cookie = token
     return {"ok": True}
 
@@ -312,10 +327,12 @@ def me(req):
 
 @route("POST", "/api/me/prefs", "user")
 def me_prefs(req):
-    sms, wa = int(bool(req.body.get("sms_opt"))), int(bool(req.body.get("wa_opt")))
-    if not (sms or wa):
-        raise HttpError(400, "Keep at least one channel on so you get your reminders")
-    db.conn().execute("UPDATE users SET sms_opt=?, wa_opt=? WHERE id=?", (sms, wa, req.user["id"]))
+    """The one channel (WhatsApp or SMS) this person wants codes, reminders and messages on."""
+    pref = req.body.get("pref")
+    if pref not in notify.CHANNELS:
+        raise HttpError(400, "Choose WhatsApp or SMS")
+    db.conn().execute("UPDATE users SET pref_channel=?, sms_opt=?, wa_opt=? WHERE id=?",
+                      (pref, int(pref == "sms"), int(pref == "whatsapp"), req.user["id"]))
     return {"ok": True}
 
 
@@ -490,7 +507,7 @@ def catalog(req):
 @route("GET", "/api/admin/people", "staff")
 def people(req):
     q = "%" + (req.query.get("q") or "") + "%"
-    rows = db.all_("SELECT id,name,phone,email,lock_user_id,lock_enabled,guardian_name,sms_opt,wa_opt FROM users "
+    rows = db.all_("SELECT id,name,phone,email,lock_user_id,lock_enabled,guardian_name,sms_opt,wa_opt,pref_channel FROM users "
                    "WHERE role IS NULL AND (name LIKE ? OR phone LIKE ?) ORDER BY name LIMIT 200", q, q)
     for r in rows:
         s = members.status(r["id"])
@@ -504,8 +521,10 @@ def people(req):
 @route("POST", "/api/admin/people", "staff")
 def save_person(req):
     b = req.body
+    pref = b.get("pref") if b.get("pref") in notify.CHANNELS else None
     uid = members.upsert_person(b.get("name"), b.get("phone"), b.get("email") or None, b.get("lock_user_id"),
-                                b.get("guardian_name") or None, b.get("sms_opt", 1), b.get("wa_opt", 1))
+                                b.get("guardian_name") or None, int(pref != "whatsapp"), int(pref != "sms"))
+    db.conn().execute("UPDATE users SET pref_channel=? WHERE id=?", (pref, uid))
     return {"id": uid}
 
 
@@ -538,7 +557,8 @@ def desk_booking(req):
     b = req.body
     return {"booking": bookings.create_by_staff(b.get("court_id"), b.get("date"), b.get("start"), b.get("slots", 1),
                                                 b.get("name"), b.get("phone"), b.get("mode"), req.user["name"],
-                                                b.get("email"), b.get("method") or "cash", b.get("received"))}
+                                                b.get("email"), b.get("method") or "cash", b.get("received"),
+                                                b.get("channel"))}
 
 
 @route("GET", "/api/admin/me", "staff")
@@ -701,7 +721,9 @@ class Req:
         self.user = None
         self.set_cookie = None
         self.ip = handler.client_address[0]
-        if config.TRUST_PROXY:
+        if config.CLIENT_IP_HEADER and handler.headers.get(config.CLIENT_IP_HEADER):
+            self.ip = handler.headers[config.CLIENT_IP_HEADER].split(",")[0].strip()
+        elif config.TRUST_PROXY:
             # The proxy appends the address it saw, so the LAST entry is the one a client can't forge.
             fwd = [p.strip() for p in handler.headers.get("X-Forwarded-For", "").split(",") if p.strip()]
             self.ip = fwd[-1] if fwd else self.ip
@@ -739,8 +761,9 @@ class Handler(BaseHTTPRequestHandler):
                     continue
                 req = Req(self, url.query, raw)
                 if who == "device":
-                    if not access.check_device_signature(self.headers, raw):
-                        raise HttpError(401, "Bad device signature")
+                    ok, why = access.device_allowed(self.client_address[0], self.headers, raw)
+                    if not ok:
+                        raise HttpError(403, why)
                 elif who in ("user", "staff", "admin"):
                     req.user = auth.user_for(req.token)
                     if not req.user:

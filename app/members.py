@@ -45,7 +45,7 @@ def status(user_id):
         joined = Date.fromisoformat(a["created_at"][:10])
         a["sessions_30d"] = _sessions_scheduled(a["weekdays"], max(joined, today - timedelta(days=30)), today)
     attended = db.one("SELECT COUNT(DISTINCT substr(at,1,10)) AS n FROM access_events "
-                      "WHERE user_id=? AND granted=1 AND method='fingerprint' AND at>=?", user_id, since)["n"]
+                      "WHERE user_id=? AND granted=1 AND method IN ('fingerprint','face') AND at>=?", user_id, since)["n"]
     from . import bookings as bk
     bookings = db.all_("SELECT b.*, c.name AS court FROM bookings b "
                        "JOIN courts c ON c.id=b.court_id WHERE b.phone=? AND b.end>=? AND (b.status='confirmed' "
@@ -64,7 +64,8 @@ def status(user_id):
         "memberships": ms,
         "academy": academy,
         "days_attended_30d": attended,
-        "fingerprint": {"enrolled": bool(u["lock_user_id"]), "active": bool(until), "until": until},
+        "fingerprint": {"enrolled": bool(u["lock_user_id"]), "active": bool(until), "until": until,
+                        "door": bool(access.door_access(user_id))},
         "upcoming_bookings": bookings,
         "recent_entries": entries,
         "referral": referral_summary(user_id),
@@ -248,8 +249,8 @@ def complete_membership(p):
     notify.send("membership_confirmed", u["phone"], {
         "name": u["name"].split()[0], "plan": plan["name"],
         "end_date": Date.fromisoformat(m["end_date"]).strftime("%d %b %Y"),
-        "access": ("Your fingerprint entry is active." if u["lock_user_id"] else
-                   "Visit the front desk once to register your fingerprint for door entry.")
+        "access": ("Your face-recognition entry is active." if u["lock_user_id"] else
+                   "Visit the front desk once to register your face for door entry.")
         if config.LOCK_ENABLED else "Show your member ID at the reception when you visit.",
     }, dedupe_key=f"memok:{mid}")
     return m

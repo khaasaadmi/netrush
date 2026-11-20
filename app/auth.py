@@ -80,12 +80,35 @@ def _ip_allowed(ip):
         return True
 
 
-def request_login_code(phone, ip=None):
-    """Send a one-time code. Works for any number: new people sign up by logging in.
-    Returns (code, is_new, phone). The HTTP layer shows the code only in DEMO_MODE."""
+def otp_channels():
+    """How a customer can receive a verification code: 'sms' (Firebase, or our SMS provider) and/or
+    'whatsapp' (our WhatsApp number)."""
+    from . import firebase
+    out = []
+    if notify.can_send("whatsapp", "login_otp"):
+        out.append("whatsapp")
+    if firebase.enabled() or notify.can_send("sms", "login_otp"):
+        out.append("sms")
+    return out
+
+
+def sms_otp_by_firebase():
+    from . import firebase
+    return firebase.enabled()
+
+
+def request_login_code(phone, ip=None, channel=None):
+    """Send a one-time code on the channel the customer picked. Works for any number: new people
+    sign up by logging in. (SMS codes go through Firebase in the browser when it's set up; this is
+    the WhatsApp path and the fallback.) Returns (code, is_new, phone); the HTTP layer shows the
+    code only in DEMO_MODE."""
     phone = phone_for(phone)
-    if not otp_available():
+    chans = otp_channels()
+    if not chans:
         raise AuthError("Mobile verification isn't switched on yet. Please call the arena.")
+    channel = channel if channel in chans else chans[0]
+    if channel == "sms" and sms_otp_by_firebase() and not config.DEMO_MODE:
+        raise AuthError("Please use the SMS option on the page to get your code.")
     prev = db.one("SELECT expires_at FROM login_otps WHERE phone=?", phone)
     if prev and clock.parse(prev["expires_at"]) - timedelta(minutes=OTP_TTL_MIN - 1) >= clock.now():
         raise AuthError("A code was just sent. Please wait a minute before asking again.")
@@ -97,13 +120,13 @@ def request_login_code(phone, ip=None):
         "ON CONFLICT(phone) DO UPDATE SET code_hash=excluded.code_hash, expires_at=excluded.expires_at, attempts=0",
         (phone, _code_hash(phone, code), clock.fmt(clock.now() + timedelta(minutes=OTP_TTL_MIN))),
     )
-    notify.send("login_otp", phone, {"code": code})
+    notify.send("login_otp", phone, {"code": code}, channels=[channel])
     return code, not db.one("SELECT 1 AS x FROM users WHERE phone=?", phone), phone
 
 
 def otp_available():
-    """Codes can only reach a phone through a real SMS/WhatsApp provider (or on screen in demo mode)."""
-    return config.DEMO_MODE or config.SMS_PROVIDER != "console" or config.WHATSAPP_PROVIDER != "console"
+    """Codes can only reach a phone through Firebase or a real SMS/WhatsApp provider (or on screen in demo mode)."""
+    return bool(otp_channels())
 
 
 def consume_code(phone, code):
@@ -121,15 +144,42 @@ def consume_code(phone, code):
     return phone
 
 
-def verify_login_code(phone, code, name=None, ref=None):
+def verify_login_code(phone, code, name=None, ref=None, pref=None):
     phone = phone_for(phone)
     user = db.one("SELECT id FROM users WHERE phone=?", phone)
     if not user and not (name or "").strip():
         raise AuthError("Please tell us your name")
     consume_code(phone, code)
+    return _login(phone, name, ref, pref)
+
+
+def login_with_firebase(id_token, name=None, ref=None, pref=None):
+    """SMS code checked by Firebase in the browser. Returns a session token, or None when this is a
+    new number and we still need their name (the browser then asks and sends the same token again)."""
+    from . import firebase
+    if not firebase.enabled():
+        raise AuthError("SMS verification isn't set up")
+    try:
+        phone = normalize_phone(firebase.verify_id_token(id_token))
+    except firebase.FirebaseError as e:
+        raise AuthError(str(e))
+    if not db.one("SELECT 1 AS x FROM users WHERE phone=?", phone) and not (name or "").strip():
+        return None
+    return _login(phone, name, ref, pref)
+
+
+def _login(phone, name=None, ref=None, pref=None):
+    """The number is verified: sign in, creating the account on a first visit."""
+    user = db.one("SELECT id FROM users WHERE phone=?", phone)
+    if pref in ("whatsapp", "sms"):  # the channel they just chose becomes their saved choice
+        db.conn().execute("UPDATE users SET pref_channel=?, sms_opt=?, wa_opt=? WHERE phone=?",
+                          (pref, int(pref == "sms"), int(pref == "whatsapp"), phone))
     if not user:
-        uid = db.conn().execute("INSERT INTO users(name,phone,created_at) VALUES(?,?,?)",
-                                (name.strip()[:80], phone, clock.fmt(clock.now()))).lastrowid
+        pref = pref if pref in ("whatsapp", "sms") else None
+        uid = db.conn().execute(
+            "INSERT INTO users(name,phone,created_at,pref_channel,sms_opt,wa_opt) VALUES(?,?,?,?,?,?)",
+            (name.strip()[:80], phone, clock.fmt(clock.now()), pref,
+             0 if pref == "whatsapp" else 1, 0 if pref == "sms" else 1)).lastrowid
         db.conn().execute("UPDATE bookings SET user_id=? WHERE phone=? AND user_id IS NULL", (uid, phone))
         if ref:  # arrived on a friend's referral link; a bad code shouldn't block signing up
             from . import members
@@ -169,7 +219,7 @@ def user_for(token):
     s = db.one("SELECT user_id, expires_at FROM sessions WHERE token=?", token)
     if not s or clock.parse(s["expires_at"]) < clock.now():
         return None
-    return db.one("SELECT id,name,phone,email,is_admin,role,sms_opt,wa_opt,lock_user_id,guardian_name "
+    return db.one("SELECT id,name,phone,email,is_admin,role,sms_opt,wa_opt,pref_channel,lock_user_id,guardian_name "
                   "FROM users WHERE id=?", s["user_id"])
 
 

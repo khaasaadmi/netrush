@@ -117,18 +117,36 @@ class TTLock:
             "startDate": self._ms(now - timedelta(days=1)), "endDate": self._ms(end)})
 
 
+class ZKTecoLock:
+    """ZKTeco terminals are kept in step by app/zkteco.py on every scheduler tick (codes go on the
+    terminal only while their window is open), so the per-event calls here have nothing to do."""
+
+    def add_code(self, code, valid_from, valid_to, label):
+        return "zkteco"
+
+    def remove_code(self, lock_ref, code):
+        pass
+
+    def set_fingerprint_enabled(self, lock_user_id, enabled, valid_until):
+        pass
+
+
 def lock():
-    return {"console": ConsoleLock, "http_bridge": HttpBridgeLock, "ttlock": TTLock}[config.LOCK_PROVIDER]()
+    return {"console": ConsoleLock, "http_bridge": HttpBridgeLock, "ttlock": TTLock,
+            "zkteco": ZKTecoLock}[config.LOCK_PROVIDER]()
 
 
 # ---------------------------------------------------------------- door codes (bookings)
 
 def _new_code(c):
     """Random code not currently active — two groups on court never share a code."""
-    active = {r[0] for r in c.execute("SELECT code FROM door_codes WHERE status='active'")}
+    taken = {r[0] for r in c.execute("SELECT code FROM door_codes WHERE status='active'")}
+    # Codes become user IDs on a ZKTeco terminal: never reuse a member's fingerprint ID, no leading zero.
+    taken |= {str(r[0]) for r in c.execute("SELECT lock_user_id FROM users WHERE lock_user_id IS NOT NULL")}
+    lo = 10 ** (config.DOOR_CODE_DIGITS - 1)
     while True:
-        code = f"{secrets.randbelow(10 ** config.DOOR_CODE_DIGITS):0{config.DOOR_CODE_DIGITS}d}"
-        if code not in active and len(set(code)) > 1:  # skip 000000, 111111…
+        code = str(lo + secrets.randbelow(9 * lo))
+        if code not in taken and len(set(code)) > 1:  # skip 111111…
             return code
 
 
@@ -167,7 +185,7 @@ def issue_due_codes():
             # Pull-mode devices still work (they ask /api/lock/verify). Flag it for the desk.
             _log_event(None, "system", None, b["id"], False, f"lock push failed: {e}")
         notify.send("door_code", b["phone"], _door_params(b, code, valid_from, valid_to),
-                    dedupe_key=f"door:{b['id']}")
+                    dedupe_key=f"door:{b['id']}", booking_channel=b["notify_channel"])
         if valid_from <= now:  # already inside the window: that message was the reminder too
             db.kv_set(f"door_reminded:{b['id']}", "1")
         issued.append({"booking_id": b["id"], "code": code})
@@ -184,7 +202,7 @@ def send_door_reminders():
     """Codes sent days ahead get re-sent when the window opens, so nobody hunts for an old SMS."""
     now = clock.now()
     for d in db.all_(
-        "SELECT d.*, b.name, b.phone, c.name AS court_name FROM door_codes d JOIN bookings b ON b.id=d.booking_id "
+        "SELECT d.*, b.name, b.phone, b.notify_channel, c.name AS court_name FROM door_codes d JOIN bookings b ON b.id=d.booking_id "
         "JOIN courts c ON c.id=b.court_id WHERE d.status='active' AND d.valid_from <= ? AND d.valid_to > ?",
         clock.fmt(now), clock.fmt(now)):
         if db.kv_get(f"door_reminded:{d['booking_id']}"):
@@ -192,7 +210,7 @@ def send_door_reminders():
         db.kv_set(f"door_reminded:{d['booking_id']}", "1")
         notify.send("door_code", d["phone"], _door_params(d, d["code"], clock.parse(d["valid_from"]),
                                                           clock.parse(d["valid_to"])),
-                    dedupe_key=f"door-reminder:{d['booking_id']}")
+                    dedupe_key=f"door-reminder:{d['booking_id']}", booking_channel=d["notify_channel"])
 
 
 def expire_codes():
@@ -253,8 +271,23 @@ def verify_code(code, device_id="door-1"):
 
 # ---------------------------------------------------------------- fingerprints (members)
 
+def door_access(user_id, day=None):
+    """Last day this person may open the door by face, or None: an active membership, plus paid
+    academy fees when ACADEMY_DOOR_ACCESS is on."""
+    day = (day or clock.today()).isoformat()
+    r = db.one("SELECT MAX(end_date) AS until FROM memberships WHERE user_id=? AND status='active' "
+               "AND start_date<=? AND end_date>=?", user_id, day, day)
+    until = r["until"] if r else None
+    if config.ACADEMY_DOOR_ACCESS:
+        a = db.one("SELECT MAX(fee_paid_until) AS until FROM academy_enrollments WHERE user_id=? "
+                   "AND status='active' AND fee_paid_until>=?", user_id, day)
+        until = max(filter(None, (until, a and a["until"])), default=None)
+    return until
+
+
 def entitlement(user_id, day=None):
-    """Last day this person may enter by fingerprint, or None. Membership or paid academy fees."""
+    """Last day this person's plan is valid (membership or paid academy fees), or None. Used for the
+    portal; whether they may open the door is door_access()."""
     day = (day or clock.today()).isoformat()
     r = db.one(
         "SELECT MAX(d) AS until FROM ("
@@ -270,11 +303,11 @@ def sync_member_access():
     only touches the lock when something changed."""
     from datetime import date
     changes = []
-    if not config.LOCK_ENABLED:
-        return changes
+    if not config.LOCK_ENABLED or config.LOCK_PROVIDER == "zkteco":
+        return changes  # zkteco.sync() does this for ZKTeco terminals
     for u in db.all_("SELECT id, name, lock_user_id, lock_enabled FROM users WHERE lock_user_id IS NOT NULL "
                      "AND lock_user_id <> ''"):
-        until = entitlement(u["id"])
+        until = door_access(u["id"])
         want = 1 if until else 0
         key = f"lock_until:{u['id']}"
         if want == u["lock_enabled"] and (not want or db.kv_get(key) == until):
@@ -292,7 +325,7 @@ def sync_member_access():
 def verify_fingerprint(lock_user_id, device_id="door-1"):
     """Pull-mode for controllers that ask before opening on a fingerprint match."""
     u = db.one("SELECT id FROM users WHERE lock_user_id=?", str(lock_user_id))
-    ok = bool(u and entitlement(u["id"]))
+    ok = bool(u and door_access(u["id"]))
     _log_event(device_id, "fingerprint", u and u["id"], None, ok,
                "member" if ok else ("unknown fingerprint id" if not u else "membership expired"))
     return {"open": ok, "reason": "member" if ok else "not_entitled"}
@@ -327,3 +360,24 @@ def check_device_signature(headers, body, max_skew=120):
         return False
     expected = hmac.new(config.DEVICE_SECRET.encode(), f"{ts}.".encode() + body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, sig)
+
+
+# Headers that only exist when a request came in through the internet (Netlify, Cloudflare, any proxy).
+_FORWARDED = ("X-Forwarded-For", "CF-Connecting-IP", "X-Nf-Client-Connection-Ip", "X-Real-IP", "Forwarded")
+
+
+def device_allowed(peer_ip, headers, body):
+    """May this request use the lock API (/api/lock/*)? Returns (ok, reason).
+
+    The door must only ever be opened from the arena's own network, so anything that arrived through
+    a proxy or tunnel is refused first. Then the controller proves itself by signature (LOCK_AUTH=hmac)
+    or by being on LOCK_ALLOWED_IPS (LOCK_AUTH=ip, for bought controllers that can't sign)."""
+    if any(headers.get(h) for h in _FORWARDED):
+        return False, "The lock API only answers on the local network"
+    if config.LOCK_AUTH == "ip":
+        if peer_ip in config.LOCK_ALLOWED_IPS and peer_ip not in ("127.0.0.1", "::1"):
+            return True, ""
+        return False, "This device's address isn't on LOCK_ALLOWED_IPS"
+    if check_device_signature(headers, body):
+        return True, ""
+    return False, "Bad device signature"

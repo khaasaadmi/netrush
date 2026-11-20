@@ -11,7 +11,7 @@ For an arena with **2 badminton courts (₹1,000/h), 1 padel court (₹1,800/h) 
 | **Receptionist** (`/admin`) | Today's bookings, reservations to confirm, phone and walk-in bookings, **payments by cash / UPI QR / card** (full or advance), other income, a **day book** with totals per method, members, academy fees, refunds to hand back. |
 | **Admin** (`/admin`) | Everything above, plus **analytics and revenue**, **traffic per agency / source**, **CSV downloads**, staff logins and a health page. |
 
-Python standard library + SQLite. No dependencies, no build step.
+Python standard library + SQLite, no build step. The one extra package is `pyzk`, for talking to the ZKTeco door terminal (the setup script installs it).
 
 ## Run it locally
 
@@ -30,7 +30,8 @@ gateway is connected.
 python -m unittest discover -s tests
 ```
 
-**Going live:** see [DEPLOY.md](DEPLOY.md).
+**Running it for real:** the server runs on a laptop / PC at the arena next to the door terminal, the pages are
+on Netlify, and a Cloudflare Tunnel connects the two. See [DEPLOY.md](DEPLOY.md).
 
 ## How it behaves
 
@@ -46,7 +47,13 @@ python -m unittest discover -s tests
 - **Tracking.** A tagged link (`/?utm_source=agency&utm_campaign=x`) credits that source for 30 days. Untagged
   visitors are classified by the referring site, or as `direct`. The booking form also asks "How did you hear
   about us?", because word of mouth can't be detected technically.
-- **Door lock** (codes and fingerprints) is built but switched off (`LOCK_ENABLED=0`) until the hardware is chosen.
+- **Door: ZKTeco MiniAC Plus.** Members (monthly / club membership) enter by face recognition; their access
+  follows their membership automatically (blocked when it lapses, unblocked on renewal, face kept enrolled).
+  Guests get a door code on their chosen channel 10 minutes before their slot; it works until the slot ends.
+  The server keeps the terminal in step every 30 seconds and imports its entry log (`app/zkteco.py`).
+- **One channel per customer.** Each person picks WhatsApp or SMS when booking or logging in, and gets every
+  code and message once, on that channel. SMS login codes go through Firebase Phone Auth; door codes and
+  booking messages go through the WhatsApp / SMS providers (Firebase can't send those).
 
 ## Layout
 
@@ -58,9 +65,13 @@ app/members.py       portal status, memberships, referrals, academy fees, remind
 app/tracking.py      visit sources and per-source bookings and revenue
 app/analytics.py     revenue, utilisation, peak hours, insights
 app/health.py        what's working and what isn't
-app/auth.py          OTP login, staff logins and roles, rate limits
-app/notify.py        SMS and WhatsApp providers, logging and de-duplication
-app/access.py        door codes and fingerprint sync (off for now)
+app/auth.py          OTP login (WhatsApp, or SMS via Firebase), staff logins and roles, rate limits
+app/firebase.py      verifies Firebase Phone Auth tokens (standard library only)
+app/zkteco.py        keeps the ZKTeco terminal in step: guest codes, member access, entry log, clock
+app/notify.py        WhatsApp and SMS providers, one chosen channel per customer, de-duplication
+app/access.py        door codes, who may enter, lock adapters
 app/seed.py          courts, plans, staff logins, demo data
 static/              landing, book, pay, booking, portal, admin, brand/ (logo files)
+netlify.toml         Netlify: serve static/, forward /api to the arena server
+deploy/windows/      one-time laptop setup (start at boot, no sleep), restart and update scripts
 ```

@@ -4,10 +4,91 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 async function api(path, body, method) {
   const opts = { method: method || (body ? "POST" : "GET"), headers: {} };
   if (body) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
-  const r = await fetch(path, opts);
+  let r;
+  try { r = await fetch(path, opts); } catch (e) { serverDown(); throw new Error("No connection. Please check your internet and try again."); }
+  // The pages are on Netlify and the booking server is at the arena: 502/503/504/530 means it can't be reached right now.
+  if ([502, 503, 504, 530].includes(r.status)) { serverDown(); const e = new Error("Online booking is briefly unavailable. Please try again in a few minutes."); e.status = r.status; throw e; }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(data.error || "Request failed"); e.status = r.status; throw e; }
   return data;
+}
+
+function serverDown() {
+  if ($(".down-bar")) return;
+  const bar = document.createElement("div");
+  bar.className = "down-bar";
+  bar.innerHTML = `<div class="wrap"><b>Online booking is briefly unavailable.</b> <span>Please try again in a few minutes, or call the arena.</span></div>`;
+  const header = $("header.top");
+  header ? header.after(bar) : document.body.prepend(bar);
+}
+
+// ---- One-time codes, on the channel the customer picks.
+// SMS: Firebase sends and checks the code in the browser, then we verify Firebase's token on the server.
+// WhatsApp (or SMS when Firebase isn't set up): our server sends and checks the code.
+const CHANNEL_LABEL = { whatsapp: "WhatsApp", sms: "SMS" };
+const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/10.14.1/";
+function loadScript(src) {
+  return new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok;
+    s.onerror = () => bad(new Error("Couldn't load SMS verification. Please check your connection or choose WhatsApp.")); document.head.append(s); });
+}
+const FB_ERRORS = { "auth/invalid-verification-code": "Wrong code. Please check and try again.",
+  "auth/code-expired": "That code has expired. Please request a new one.",
+  "auth/too-many-requests": "Too many attempts from this phone. Please wait a while or choose WhatsApp.",
+  "auth/quota-exceeded": "SMS limit reached for now. Please choose WhatsApp.",
+  "auth/invalid-phone-number": "That mobile number doesn't look right.",
+  "auth/captcha-check-failed": "Verification check failed. Please reload the page and try again.",
+  "auth/network-request-failed": "No connection. Please check your internet and try again." };
+const Otp = {
+  _fb: null, _confirm: null, _verifier: null, token: null,
+  async _auth(cfg) {
+    if (!this._fb) this._fb = (async () => {
+      await loadScript(FIREBASE_SDK + "firebase-app-compat.js");
+      await loadScript(FIREBASE_SDK + "firebase-auth-compat.js");
+      firebase.initializeApp(cfg.firebase);
+      const auth = firebase.auth(); auth.useDeviceLanguage(); return auth;
+    })();
+    return this._fb;
+  },
+  // Returns {demo_code?, new?}. Throws with a readable message.
+  async send(cfg, phone, channel) {
+    this._confirm = null; this.token = null;
+    if (channel === "sms" && cfg.firebase && !cfg.demo) {
+      const auth = await this._auth(cfg);
+      let box = $("#recaptcha-box");
+      if (!box) { box = document.createElement("div"); box.id = "recaptcha-box"; document.body.append(box); }
+      if (!this._verifier) this._verifier = new firebase.auth.RecaptchaVerifier("recaptcha-box", { size: "invisible" });
+      try { this._confirm = await auth.signInWithPhoneNumber("+91" + phone.replace(/\D/g, "").slice(-10), this._verifier); }
+      catch (e) { try { this._verifier.clear(); } catch (x) {} this._verifier = null; throw new Error(FB_ERRORS[e.code] || e.message); }
+      return {};
+    }
+    return api("/api/auth/request-code", { phone, channel });
+  },
+  // Returns {ok:true} when signed in, or {need_name:true} for a new number (call finish() with the name).
+  async verify(phone, code, extra) {
+    if (this._confirm) {
+      let cred;
+      try { cred = await this._confirm.confirm(String(code).trim()); } catch (e) { throw new Error(FB_ERRORS[e.code] || e.message); }
+      this.token = await cred.user.getIdToken();
+      return api("/api/auth/firebase", { id_token: this.token, ...extra });
+    }
+    return api("/api/auth/verify", { phone, code, ...extra });
+  },
+  finish(extra) { return api("/api/auth/firebase", { id_token: this.token, ...extra }); },
+};
+
+// A "WhatsApp | SMS" chooser. Returns the chosen channel via el.dataset.value.
+function channelPicker(el, channels, chosen) {
+  el.dataset.value = channels.includes(chosen) ? chosen : channels[0] || "";
+  if (channels.length < 2) {
+    el.innerHTML = channels.length ? `<span class="small muted">We'll send it by <b>${CHANNEL_LABEL[channels[0]]}</b>.</span>` : "";
+    return;
+  }
+  el.innerHTML = `<div class="methods" role="group">${channels.map(c =>
+    `<button type="button" data-c="${c}" aria-pressed="${c === el.dataset.value}">${CHANNEL_LABEL[c]}</button>`).join("")}</div>`;
+  $$("button", el).forEach(b => b.onclick = () => {
+    el.dataset.value = b.dataset.c; $$("button", el).forEach(x => x.setAttribute("aria-pressed", x === b));
+    el.dispatchEvent(new Event("change"));
+  });
 }
 
 function esc(s) {

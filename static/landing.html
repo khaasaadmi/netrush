@@ -76,6 +76,35 @@
   .price-notes { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
   .price-notes span { font-size: .84rem; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px; }
   @media (max-width: 860px) { .price-grid { grid-template-columns: 1fr; } }
+  /* events: the lounge's ambient lighting, as warm string lights (a real photo can go in /brand/events.jpg) */
+  .ev { position: relative; overflow: hidden; border-radius: 30px; color: #fff; min-height: 420px; isolation: isolate;
+    display: grid; grid-template-columns: 1fr 1.1fr; align-items: center;
+    background: linear-gradient(110deg, rgb(12 10 8 / .25), rgb(12 10 8 / .82) 55%), url(/brand/events.jpg) center / cover, #1a120c; }
+  .ev-art { position: absolute; inset: 0; z-index: -1; overflow: hidden;
+    background: radial-gradient(520px 340px at 20% 70%, rgb(255 168 76 / .35), transparent 70%),
+      radial-gradient(420px 300px at 75% 15%, rgb(214 112 255 / .18), transparent 70%); }
+  .ev-art i { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #ffd27a;
+    box-shadow: 0 0 18px 6px rgb(255 196 92 / .55), 0 0 60px 18px rgb(255 160 60 / .2); animation: glow 4s ease-in-out infinite; }
+  .ev-art i:nth-child(1) { left: 4%; top: 14%; } .ev-art i:nth-child(2) { left: 12%; top: 20%; animation-delay: .4s; }
+  .ev-art i:nth-child(3) { left: 20%; top: 24%; animation-delay: .9s; } .ev-art i:nth-child(4) { left: 28%; top: 25%; animation-delay: 1.3s; }
+  .ev-art i:nth-child(5) { left: 36%; top: 22%; animation-delay: 1.8s; } .ev-art i:nth-child(6) { left: 43%; top: 17%; animation-delay: 2.2s; }
+  .ev-art i:nth-child(7) { left: 12%; top: 62%; width: 70px; height: 70px; background: rgb(255 200 120 / .16); box-shadow: none; filter: blur(6px); }
+  .ev-art i:nth-child(8) { left: 30%; top: 72%; width: 110px; height: 110px; background: rgb(255 150 90 / .14); box-shadow: none; filter: blur(10px); animation-delay: 1s; }
+  .ev-art i:nth-child(9) { left: 4%; top: 80%; width: 50px; height: 50px; background: rgb(214 140 255 / .16); box-shadow: none; filter: blur(5px); animation-delay: 2s; }
+  @keyframes glow { 50% { opacity: .55; } }
+  @media (prefers-reduced-motion: reduce) { .ev-art i { animation: none; } }
+  .ev-copy { grid-column: 2; padding: clamp(24px, 4vw, 48px); }
+  .ev-copy h2 { color: #fff; font-size: clamp(1.7rem, 4vw, 2.6rem); letter-spacing: -.035em; margin: 8px 0 12px; }
+  .ev-copy p { color: rgb(255 255 255 / .8); max-width: 50ch; }
+  .ev-list { list-style: none; padding: 0; margin: 14px 0 22px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .ev-list li { font-size: .82rem; font-weight: 600; padding: 7px 12px; border-radius: 999px; background: rgb(255 255 255 / .1);
+    border: 1px solid rgb(255 255 255 / .16); }
+  .big-btn { padding: 15px 26px; font-size: 1.02rem; }
+  textarea { font: inherit; width: 100%; padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--line);
+    background: var(--surface); color: var(--ink); resize: vertical; }
+  @media (max-width: 860px) { .ev { grid-template-columns: 1fr; min-height: 0; padding-top: 140px;
+    background: linear-gradient(180deg, rgb(12 10 8 / .2), rgb(12 10 8 / .88) 45%), url(/brand/events.jpg) center / cover, #1a120c; }
+    .ev-copy { grid-column: 1; } }
   .info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   .info .card h3 { margin-bottom: 6px; }
   details { border-bottom: 1px solid var(--line); padding: 16px 2px; }
@@ -98,7 +127,7 @@
 <body>
 <header class="top"><div class="wrap">
   <a class="logo" href="/"><i></i><span>NetRush</span></a>
-  <nav><a href="#sports">Courts</a><a href="#pricing">Pricing</a><a href="#membership">Membership</a><a href="#visit">Visit</a>
+  <nav><a href="#sports">Courts</a><a href="#pricing">Pricing</a><a href="#membership">Membership</a><a href="#events">Events</a><a href="#visit">Visit</a>
     <a href="/portal" class="keep">Login</a><a href="/book" class="cta">Book a court</a></nav>
 </div></header>
 
@@ -174,6 +203,22 @@
     <div class="price-notes" id="pr-notes"></div>
   </section>
 
+  <section id="events">
+    <div class="ev">
+      <div class="ev-art" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="ev-copy">
+        <div class="eyebrow" style="color:rgb(255 255 255 / .6)">Events &amp; parties</div>
+        <h2>Planning to hold an event?</h2>
+        <p>Our lounge has warm ambient lighting and room to gather: birthdays, team outings, corporate evenings,
+          tournaments with an after-party, or simply a get-together after a game. Tell us what you have in mind and
+          we'll plan it with you.</p>
+        <ul class="ev-list"><li>Birthdays &amp; celebrations</li><li>Corporate &amp; team events</li>
+          <li>Tournaments with courts and lounge</li><li>Private get-togethers</li></ul>
+        <button class="lime big-btn" id="ev-open">Contact us here →</button>
+      </div>
+    </div>
+  </section>
+
   <section class="cta-band">
     <div><h2 id="band-h">First time here? Your first booking is on us, a little.</h2>
       <p style="margin:8px 0 0;font-weight:600" id="band-p">Verify your mobile number while booking and save on your first court.</p></div>
@@ -207,6 +252,29 @@
   <span>© <span id="year"></span> NetRush. All rights reserved.</span><span class="spacer"></span>
   <a href="/book">Book a court</a><a href="/portal">Member login</a><a href="/admin">Staff</a>
 </div></footer>
+<!-- event enquiry -->
+<div class="sheet-bg hidden" id="ev-sheet"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ev-h">
+  <form id="ev-form" novalidate>
+    <div class="eyebrow">Events &amp; parties</div>
+    <h2 id="ev-h" style="margin-top:4px">Tell us about your event</h2>
+    <p class="small muted">We'll call you back, usually within a day.</p>
+    <div class="field"><label for="ev-name">Full name *</label><input id="ev-name" autocomplete="name" required maxlength="80"></div>
+    <div class="field"><label for="ev-phone">Mobile number *</label><input id="ev-phone" inputmode="tel" autocomplete="tel" required placeholder="10-digit mobile"></div>
+    <div class="field"><label for="ev-people">Number of people *</label><input id="ev-people" type="number" inputmode="numeric" min="1" max="2000" required placeholder="e.g. 40"></div>
+    <div class="field"><label for="ev-msg">Message (optional)</label><textarea id="ev-msg" rows="3" maxlength="1000" placeholder="Date, occasion, anything you'd like"></textarea></div>
+    <!-- hidden from people; bots fill it in -->
+    <div style="position:absolute;left:-9999px" aria-hidden="true"><label for="ev-website">Website</label><input id="ev-website" tabindex="-1" autocomplete="off"></div>
+    <div class="row" style="margin-top:16px"><button type="button" class="ghost" data-close>Cancel</button><span class="spacer"></span>
+      <button type="submit" class="lime" id="ev-send">Send enquiry</button></div>
+  </form>
+  <div id="ev-done" class="hidden">
+    <div class="eyebrow">Received</div>
+    <h2 style="margin-top:4px">Thank you, <span id="ev-who"></span>!</h2>
+    <p class="muted">We've got your enquiry and will call you on <b id="ev-ph"></b> to plan your event.</p>
+    <button class="block" data-close style="margin-top:12px">Done</button>
+  </div>
+</div></div>
+
 <div class="mobile-cta"><a class="btn" href="/book">Book a court →</a></div>
 
 <script src="/common.js"></script>
@@ -215,6 +283,28 @@ $("#year").textContent = new Date().getFullYear();
 const h12 = h => (h % 12 || 12) + (h < 12 || h === 24 ? " am" : " pm");
 const BLURB = { badminton: "Wooden-sprung courts with proper lighting. Singles or doubles.",
   padel: "The fastest-growing racket sport. Glass court, doubles play.", pickleball: "Easy to learn, hard to stop. Great for all ages." };
+// ---- event enquiry
+const evSheet = $("#ev-sheet");
+$("#ev-open").onclick = () => { evSheet.classList.remove("hidden"); $("#ev-form").classList.remove("hidden");
+  $("#ev-done").classList.add("hidden"); $("#ev-name").focus(); };
+$$("#ev-sheet [data-close]").forEach(b => b.onclick = () => evSheet.classList.add("hidden"));
+evSheet.addEventListener("click", e => { if (e.target === evSheet) evSheet.classList.add("hidden"); });
+$("#ev-form").onsubmit = async e => {
+  e.preventDefault();
+  const name = $("#ev-name").value.trim(), phone = $("#ev-phone").value, people = $("#ev-people").value;
+  if (name.length < 2) { toast("Please enter your full name", true); return $("#ev-name").focus(); }
+  if (phone.replace(/\D/g, "").length < 10) { toast("Please enter your 10-digit mobile number", true); return $("#ev-phone").focus(); }
+  if (!(+people >= 1)) { toast("Please enter the number of people", true); return $("#ev-people").focus(); }
+  $("#ev-send").disabled = true;
+  try {
+    await api("/api/events/enquire", { name, phone, people, message: $("#ev-msg").value, website: $("#ev-website").value, src: campaign() });
+    $("#ev-who").textContent = name.split(" ")[0]; $("#ev-ph").textContent = phone.replace(/\D/g, "").slice(-10);
+    $("#ev-form").classList.add("hidden"); $("#ev-done").classList.remove("hidden"); $("#ev-form").reset();
+  } catch (err) { toast(err.message, true); }
+  finally { $("#ev-send").disabled = false; }
+};
+if (location.hash === "#event-enquiry") $("#ev-open").click();   // marketing can link straight to the form
+
 api("/api/pricing").then(p => {
   const row = (name, sub, price) => `<tr><td><b>${esc(name)}</b>${sub ? `<span class="tiny">${esc(sub)}</span>` : ""}</td><td>${price}</td></tr>`;
   $("#pr-courts").innerHTML = "<tbody>" + p.courts.filter(c => c.courts).map(c =>

@@ -38,6 +38,7 @@
     <button role="tab" data-tab="today" aria-selected="true"></button>
     <button role="tab" data-tab="pay" aria-selected="false"></button>
     <button role="tab" data-tab="people" aria-selected="false"></button>
+    <button role="tab" data-tab="events" aria-selected="false"></button>
     <button role="tab" data-tab="analytics" aria-selected="false" data-admin></button>
     <button role="tab" data-tab="health" aria-selected="false" data-admin></button>
     <button role="tab" data-tab="door" aria-selected="false" data-lock></button>
@@ -205,6 +206,15 @@
       <div class="card"><h2>Access log</h2><div class="table-scroll"><table id="d-log"></table></div></div>
     </section>
 
+    <!-- EVENTS -->
+    <section data-panel="events" class="stack hidden">
+      <div class="page-head"><div><div class="eyebrow">From the website</div><h1 style="margin-top:4px">Event enquiries</h1></div>
+        <span class="spacer"></span>
+        <div class="segmented" id="ev-filter"><button data-s="new" aria-pressed="true">New</button><button data-s="contacted" aria-pressed="false">Contacted</button>
+          <button data-s="booked" aria-pressed="false">Booked</button><button data-s="closed" aria-pressed="false">Closed</button><button data-s="" aria-pressed="false">All</button></div></div>
+      <div id="ev-list" class="stack"></div>
+    </section>
+
     <!-- MESSAGES -->
     <section data-panel="msgs" class="stack hidden">
       <div class="page-head"><div><div class="eyebrow">Outbox</div><h1 style="margin-top:4px">SMS &amp; WhatsApp</h1></div></div>
@@ -235,7 +245,7 @@
 <script src="/common.js"></script>
 <script>
 const A = { cfg: null, me: null, cat: null, ov: null, people: [], mode: "unpaid", days: 30, methods: {} };
-const TABS = { today: ["today", "Today"], pay: ["chart", "Payments"], people: ["people", "People"], analytics: ["chart", "Analytics"],
+const TABS = { today: ["today", "Today"], pay: ["chart", "Payments"], people: ["people", "People"], events: ["party", "Events"], analytics: ["chart", "Analytics"],
   health: ["pulse", "Team & health"], door: ["door", "Door"], msgs: ["chat", "Messages"] };
 $$(".side button").forEach(b => b.innerHTML = ICON[TABS[b.dataset.tab][0]] + TABS[b.dataset.tab][1]);
 const METHOD = { cash: "Cash", upi: "UPI QR", card: "Card", online: "Website", credit: "Credit" };
@@ -297,14 +307,14 @@ $("#logout").onclick = async e => { e.preventDefault(); await api("/api/auth/log
 function openTab(tab) {
   $$(".side button").forEach(x => x.setAttribute("aria-selected", x.dataset.tab === tab));
   $$("[data-panel]").forEach(p => p.classList.toggle("hidden", p.dataset.panel !== tab));
-  ({ people: loadPeople, analytics: loadAnalytics, health: loadHealth, pay: loadDaybook }[tab] || (() => {}))();
+  ({ people: loadPeople, analytics: loadAnalytics, health: loadHealth, pay: loadDaybook, events: loadEvents }[tab] || (() => {}))();
   history.replaceState(null, "", "#" + tab);
 }
 $$(".side button").forEach(b => b.onclick = () => openTab(b.dataset.tab));
 
 async function refresh() {
   A.ov = await api("/api/admin/overview?date=" + $("#t-date").value);
-  renderToday(); renderDoor(); renderMsgs();
+  renderToday(); renderDoor(); renderMsgs(); eventsBadge(A.ov.events_new);
 }
 $("#t-date").onchange = refresh;
 
@@ -415,6 +425,42 @@ async function payFee(id) {
   const p = await askPay("Academy fee: 1 month", "How was it paid?", null, false); if (!p) return;
   try { const r = await api("/api/admin/academy-fee", { enrollment_id: +id, months: 1, method: p.method }); toast("Fees paid until " + niceDate(r.fee_paid_until)); refresh(); if (!$("[data-panel=people]").classList.contains("hidden")) loadPeople(); }
   catch (e) { toast(e.message, true); }
+}
+
+// ---------------- event enquiries
+let EV_STATUS = "new";
+const EV_PILL = { new: "warn", contacted: "plain", booked: "ok", closed: "" };
+$$("#ev-filter button").forEach(b => b.onclick = () => { EV_STATUS = b.dataset.s;
+  $$("#ev-filter button").forEach(x => x.setAttribute("aria-pressed", x === b)); loadEvents(); });
+function eventsBadge(n) {
+  const b = $('.side button[data-tab="events"]');
+  b.innerHTML = ICON.party + "Events" + (n ? ` <span class="pill warn plain" style="margin-left:auto">${n}</span>` : "");
+}
+async function loadEvents() {
+  const r = await api("/api/admin/events" + (EV_STATUS ? "?status=" + EV_STATUS : ""));
+  eventsBadge(r.counts.new);
+  $$("#ev-filter button").forEach(b => { const n = b.dataset.s ? r.counts[b.dataset.s] : Object.values(r.counts).reduce((a, c) => a + c, 0);
+    b.textContent = (b.dataset.s ? b.dataset.s[0].toUpperCase() + b.dataset.s.slice(1) : "All") + (n ? ` (${n})` : ""); });
+  $("#ev-list").innerHTML = r.enquiries.length ? r.enquiries.map(e => {
+    const wa = `https://wa.me/91${e.phone}?text=${encodeURIComponent(`Hi ${e.name.split(" ")[0]}, thank you for your event enquiry at ${A.cfg.facility}. When would be a good time to talk?`)}`;
+    return `<div class="card"><div class="row" style="align-items:flex-start">
+        <div style="min-width:0;flex:1"><div class="row" style="gap:8px"><h3 style="margin:0">${esc(e.name)}</h3>
+          <span class="pill ${EV_PILL[e.status]}">${esc(e.status)}</span></div>
+          <div class="small muted" style="margin-top:4px"><b>${e.people}</b> people · ${e.phone} · ${niceDate(e.created_at)} ${hhmm(e.created_at)}${e.source ? " · via " + esc(e.source) : ""}</div>
+          ${e.message ? `<p style="margin:10px 0 0">${esc(e.message)}</p>` : `<p class="small faint" style="margin:10px 0 0">No message.</p>`}</div>
+        <div class="row" style="gap:6px"><a class="btn sm" href="tel:+91${e.phone}">Call</a><a class="btn ghost sm" href="${wa}" target="_blank" rel="noopener">WhatsApp</a></div></div>
+      <div class="row" style="margin-top:12px;flex-wrap:nowrap">
+        <select data-ev-status="${e.id}" style="width:auto">${["new", "contacted", "booked", "closed"].map(s => `<option ${s === e.status ? "selected" : ""}>${s}</option>`).join("")}</select>
+        <input data-ev-note="${e.id}" value="${esc(e.note || "")}" placeholder="Note for the team (date agreed, quote…)">
+        <button class="ghost sm" data-ev-save="${e.id}">Save</button></div>
+      ${e.handled_by ? `<div class="tiny faint" style="margin-top:6px">Last updated by ${esc(e.handled_by)} · ${niceDate(e.updated_at)} ${hhmm(e.updated_at)}</div>` : ""}
+    </div>`;
+  }).join("") : `<div class="card"><div class="empty">No ${EV_STATUS || ""} enquiries.</div></div>`;
+  $$("[data-ev-save]").forEach(b => b.onclick = async () => {
+    const id = b.dataset.evSave;
+    try { await api(`/api/admin/events/${id}`, { status: $(`[data-ev-status="${id}"]`).value, note: $(`[data-ev-note="${id}"]`).value });
+      toast("Saved"); loadEvents(); } catch (e) { toast(e.message, true); }
+  });
 }
 
 // ---------------- day book
@@ -596,7 +642,7 @@ async function loadAnalytics() {
     ["Active members", mem.active], ["New / renewed", mem.new], ["Bought online", mem.new_online], ["Renewals", mem.renewals],
     ["Lapsed", mem.lapsed], ["Expiring in 7 days", mem.expiring_7d], ["Academy players", mem.academy_players], ["Fees overdue", mem.fees_overdue],
   ].map(([l, v]) => `<div class="stat"><span class="label">${l}</span><b>${v}</b></div>`).join("");
-  $("#an-dl").innerHTML = [["bookings", "Bookings"], ["payments", "Payments"], ["summary", "Daily revenue"], ["sources", "Traffic sources"], ["members", "Members"]]
+  $("#an-dl").innerHTML = [["bookings", "Bookings"], ["payments", "Payments"], ["summary", "Daily revenue"], ["sources", "Traffic sources"], ["members", "Members"], ["events", "Event enquiries"]]
     .map(([k, l]) => `<a class="btn ghost sm" href="/api/admin/export?what=${k}&days=${A.days}" download>⬇ ${l}</a>`).join("");
   buildLink();
 }

@@ -56,6 +56,8 @@ on Netlify, and a Cloudflare Tunnel connects the two. See [DEPLOY.md](DEPLOY.md)
 - **Member logins are created by the desk.** Reception or the admin creates each member's or academy player's
   login (member ID + temporary password); at the first sign-in they must set their own password and may pick a
   username. Guests book with their mobile number and can log in with a one-time code.
+- **Events and parties.** A "Planning to hold an event?" section on the home page takes enquiries (name, mobile,
+  number of people, optional message) into Admin → Events, with an optional WhatsApp alert to a staff phone.
 - **Light and dark mode** on every page: follows the device, or the visitor's choice from the sun/moon button.
 
 ## Layout
@@ -65,6 +67,7 @@ server.py            routes: public pages, booking, payment page, portal, staff 
 app/bookings.py      availability, holds, reservations, staff bookings, cancellation and refund policy
 app/payments.py      online orders, verification, webhook, desk payments, day book, automatic refunds
 app/members.py       portal status, memberships, referrals, academy fees, reminders
+app/events.py        event / party enquiries: validation, spam guard, staff alert, statuses
 app/tracking.py      visit sources and per-source bookings and revenue
 app/analytics.py     revenue, utilisation, peak hours, insights
 app/health.py        what's working and what isn't

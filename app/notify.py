@@ -25,6 +25,7 @@ PARAMS = {
     "reservation_received": ["name", "ref", "court", "when", "deadline", "phone", "amount"],
     "reservation_released": ["name", "ref", "court", "when"],
     "referral_reward": ["name", "friend", "amount", "credit"],
+    "event_enquiry": ["name", "phone", "people", "message"],
 }
 
 TEXT = {
@@ -36,6 +37,8 @@ TEXT = {
         if config.LOCK_ENABLED else "Show this message at the reception when you arrive. See you on court!"),
     "reservation_received": "Hi {name}, we are holding {court}, {when} for you (ref {ref}, {amount}). "
     "Confirm by {deadline}: pay online from your booking link or call {phone}. After that the slot is released.",
+    "event_enquiry": "New event enquiry from {name} ({phone}) for {people} people. Message: {message}. "
+    "Details in Admin > Events.",
     "referral_reward": "Hi {name}, {friend} just joined NetRush with your referral. {amount} credit added: "
     "you now have {credit} off your next membership payment. Thank you!",
     "reservation_released": "Hi {name}, your reservation {ref} ({court}, {when}) was not confirmed in time and "

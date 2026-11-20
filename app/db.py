@@ -205,6 +205,21 @@ CREATE TABLE IF NOT EXISTS visits (
 );
 CREATE INDEX IF NOT EXISTS ix_visits_at ON visits(at);
 
+-- "Planning to hold an event?" enquiries from the website
+CREATE TABLE IF NOT EXISTS event_enquiries (
+    id         INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    phone      TEXT NOT NULL,
+    people     INTEGER NOT NULL,
+    message    TEXT,
+    status     TEXT NOT NULL DEFAULT 'new',   -- new | contacted | booked | closed
+    note       TEXT,                          -- staff's own note
+    handled_by TEXT,
+    updated_at TEXT,
+    source     TEXT                           -- marketing source of the visit (agency link, Instagram, …)
+);
+
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 """
 
@@ -304,7 +319,7 @@ def kv_set(k, v):
     conn().execute("INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (k, v))
 
 
-TABLES = ["visits", "sessions", "login_otps", "notifications", "access_events", "door_codes", "payments", "bookings",
+TABLES = ["event_enquiries", "visits", "sessions", "login_otps", "notifications", "access_events", "door_codes", "payments", "bookings",
           "court_blocks", "academy_enrollments", "academy_batches", "memberships", "plans", "courts", "users", "kv"]
 
 

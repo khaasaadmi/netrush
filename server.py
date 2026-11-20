@@ -14,10 +14,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from app import (access, analytics, auth, bookings, clock, config, db, firebase, health, members, notify,
+from app import (access, analytics, auth, bookings, clock, config, db, events, firebase, health, members, notify,
                  payments, scheduler, tracking)
 from app.auth import AuthError
 from app.bookings import BookingError
+from app.events import EventError
 from app.members import MemberError
 from app.payments import PaymentError
 
@@ -112,6 +113,26 @@ def post_booking(req):
 def _tag(src):
     src = src if isinstance(src, dict) else {}
     return tracking.booking_tag(src.get("source"), src.get("campaign"), src.get("referrer"))
+
+
+@route("POST", "/api/events/enquire")
+def event_enquiry(req):
+    """'Planning to hold an event?' form on the website."""
+    b = req.body
+    src = b.get("src") if isinstance(b.get("src"), dict) else {}
+    events.submit(b.get("name"), b.get("phone"), b.get("people"), b.get("message"), req.ip,
+                  tracking.booking_tag(src.get("source"), src.get("campaign"), src.get("referrer")), b.get("website"))
+    return {"ok": True}
+
+
+@route("GET", "/api/admin/events", "staff")
+def list_events(req):
+    return events.listing(req.query.get("status"))
+
+
+@route("POST", r"/api/admin/events/(\d+)", "staff")
+def update_event(req, eid):
+    return {"enquiry": events.update(int(eid), req.user["name"], req.body.get("status"), req.body.get("note"))}
 
 
 @route("POST", "/api/track")
@@ -509,6 +530,7 @@ def overview(req):
     return {
         "date": day, "now": clock.fmt(clock.now()), "bookings": todays, "collected": collected,
         "expiring": expiring, "fees_due": fees_due, "unpaid": unpaid, "refunds": refunds, "reserved": reserved,
+        "events_new": db.one("SELECT COUNT(*) AS n FROM event_enquiries WHERE status='new'")["n"],
         "notifications": db.all_("SELECT created_at,kind,channel,to_phone,body,status,error FROM notifications "
                                  "ORDER BY id DESC LIMIT 60"),
         "access": db.all_("SELECT a.at,a.device_id,a.method,a.granted,a.detail,u.name,b.ref FROM access_events a "
@@ -689,6 +711,9 @@ def export(req):
         r = analytics.report(days)
         head = ["date", "collected", "refunded"]
         rows = r["daily"] + [{"date": "TOTAL", "collected": r["money"]["gross"], "refunded": r["money"]["refunded"]}]
+    elif what == "events":
+        head = ["created_at", "name", "phone", "people", "message", "status", "note", "handled_by", "source"]
+        rows = db.all_("SELECT * FROM event_enquiries WHERE created_at>=? ORDER BY id", since)
     elif what == "sources":
         head = ["source", "campaigns", "visitors", "bookings", "confirmed", "conversion", "revenue"]
         rows = [{**r, "campaigns": " ".join(r["campaigns"])} for r in tracking.report(min(days, 366))["sources"]]
@@ -828,7 +853,7 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(404, "Not found")
         except HttpError as e:
             self._json(e.status, {"error": str(e)})
-        except (BookingError, AuthError, MemberError, PaymentError) as e:
+        except (BookingError, AuthError, MemberError, PaymentError, EventError) as e:
             self._json(400, {"error": str(e)})
         except (KeyError, ValueError) as e:
             self._json(400, {"error": f"Bad request: {e}"})

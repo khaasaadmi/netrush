@@ -104,6 +104,7 @@ Templates (start with the first four; any type without a flow is sent by WhatsAp
 | `MSG91_FLOW_MEMBERSHIP` | `Hi ##name##, your ##plan## membership ##when## (##end_date##). Renew online at https://netrush.in/portal or at the desk to keep playing.` | name, plan, end_date, when |
 | `MSG91_FLOW_MEMBERSHIP_OK` | `Hi ##name##, your ##plan## is active until ##end_date##. ##access##` | name, plan, end_date, access |
 | `MSG91_FLOW_ACADEMY` | `Hi ##name##, academy fees for ##batch## are paid until ##end_date## and ##when##. Please renew to continue training.` | name, batch, end_date, when |
+| `MSG91_FLOW_EVENT` (to staff) | `New event enquiry from ##name## (##phone##) for ##people## people. Message: ##message##. Details in Admin > Events.` | name, phone, people, message |
 | `MSG91_FLOW_REFERRAL` | `Hi ##name##, ##friend## just joined NetRush with your referral. ##amount## credit added: you now have ##credit## off your next membership payment. Thank you!` | name, friend, amount, credit |
 
 Keep the wording identical to what DLT approved: operators block messages that don't match. The door-code wording
@@ -166,7 +167,22 @@ Members and academy players never sign themselves up. The desk does it:
 Guests don't need any of this: they book with their mobile number, and can log in with a one-time code to see
 their bookings.
 
-## 9. Online payments (Razorpay)
+## 9. Event and party enquiries
+
+The home page has a **"Planning to hold an event?"** section with a form (full name, mobile, number of people, optional
+message). Every enquiry appears in **Admin → Events** (reception and admin), with a count of new ones on the sidebar,
+one-tap **Call** and **WhatsApp** buttons, a status (new → contacted → booked → closed) and a note for the team.
+
+To also get each enquiry on a staff phone, set `EVENT_NOTIFY_PHONE` to that mobile number and create the WhatsApp
+template `event_enquiry` (Utility; variables: name, phone, people, message), then run `restart.cmd`. For SMS instead,
+set `EVENT_NOTIFY_CHANNEL=sms` and create the `MSG91_FLOW_EVENT` template above.
+
+- **Photo:** save a landscape photo of the lounge as `static/brand/events.jpg` (about 1600 px wide) and it replaces
+  the drawn string lights.
+- **Marketing link straight to the form:** `https://netrush.in/#event-enquiry`. Add `?utm_source=<agency>` in front
+  of the `#` to credit an agency; each enquiry records where the visitor came from.
+
+## 10. Online payments (Razorpay)
 
 Leave `PAYMENT_PROVIDER=mock` until Razorpay is ready: the site then hides "Pay now" and offers
 reserve-and-pay-at-venue only. When ready, set `PAYMENT_PROVIDER=razorpay`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`,
@@ -174,7 +190,7 @@ and add a webhook (event `payment.captured`) to `https://netrush.in/api/payments
 `RAZORPAY_WEBHOOK_SECRET`. Test keys (`rzp_test_…`) take no money but still mark bookings paid, so use them only
 for a quiet test; the health page shows a red warning while they're in.
 
-## 10. Backups
+## 11. Backups
 
 The server saves a copy of the database every day into `BACKUP_DIR` and keeps 30 days. Point `BACKUP_DIR` at a
 folder that leaves the laptop, such as a Google Drive or OneDrive folder synced on that machine, or a USB drive.

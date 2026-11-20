@@ -66,6 +66,10 @@ FIRST_BOOKING_DISCOUNT_PCT = env_int("FIRST_BOOKING_DISCOUNT_PCT", 15)
 # (rupees) taken off their next membership payment.
 REFERRAL_REWARD = env_int("REFERRAL_REWARD", 300)
 
+# Event / party enquiries: an alert goes to this staff mobile (leave empty to see them in Admin → Events only)
+EVENT_NOTIFY_PHONE = env("EVENT_NOTIFY_PHONE", "")
+EVENT_NOTIFY_CHANNEL = env("EVENT_NOTIFY_CHANNEL", "whatsapp")
+
 # Shown on the landing page, reservations and messages.
 ARENA_PHONE = env("ARENA_PHONE", "+91 90000 00000")
 ARENA_ADDRESS = env("ARENA_ADDRESS", "NetRush Arena (address coming soon)")
@@ -114,6 +118,7 @@ MSG91_FLOWS = {
     "reservation_received": env("MSG91_FLOW_RESERVED"),
     "reservation_released": env("MSG91_FLOW_RELEASED"),
     "referral_reward": env("MSG91_FLOW_REFERRAL"),
+    "event_enquiry": env("MSG91_FLOW_EVENT"),
 }
 
 WA_TOKEN = env("WA_TOKEN")

@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from . import clock, config, db
 
-DEMO = ("console", "mock")
+NOT_CONNECTED = ("console", "none")
 
 
 def checks():
@@ -37,7 +37,7 @@ def checks():
         if ch == "sms" and provider == "2factor":
             add(label, "ok" if not failed else "warn",
                 f"OTP codes only (2Factor): {sent} sent, {failed} failed in 24h. Other messages need WhatsApp or DLT SMS.")
-        elif provider in DEMO:
+        elif provider in NOT_CONNECTED:
             what = ("Login codes and the first-booking discount are switched off until it is."
                     if ch == "sms" else "Booking confirmations and reminders are not reaching customers.")
             add(label, "warn", f"Not connected, so no {label} messages are sent. " + what,
@@ -53,22 +53,21 @@ def checks():
     # The channel each customer chose, and whether we can actually reach it.
     from . import auth, firebase, notify
     chans = notify.message_channels()
-    if not config.DEMO_MODE:
-        if not chans:
-            add("Customer messages", "warn", "No WhatsApp or SMS provider connected: booking confirmations and "
-                "door codes are only shown on screen.", "Connect WhatsApp (cheapest) and/or an SMS provider.")
-        elif len(chans) == 1:
-            have, other = ("WhatsApp", "SMS") if chans[0] == "whatsapp" else ("SMS", "WhatsApp")
-            add("Customer messages", "warn", f"Only {have} is connected, so customers can't choose {other}.",
-                f"Connect {other} to offer the choice.")
-        else:
-            add("Customer messages", "ok", "WhatsApp and SMS connected. Each customer gets messages on the one they chose.")
-        otp = auth.otp_channels()
-        if firebase.enabled():
-            add("SMS login codes (Firebase)", "ok", "Firebase sends SMS verification codes.")
-        if not otp:
-            add("Login codes", "warn", "No way to send verification codes: login and the first-booking discount are off.",
-                "Set up Firebase (SMS) and/or WhatsApp.")
+    if not chans:
+        add("Customer messages", "warn", "No WhatsApp or SMS provider connected: booking confirmations and "
+            "door codes are only shown on screen.", "Connect WhatsApp (cheapest) and/or an SMS provider.")
+    elif len(chans) == 1:
+        have, other = ("WhatsApp", "SMS") if chans[0] == "whatsapp" else ("SMS", "WhatsApp")
+        add("Customer messages", "warn", f"Only {have} is connected, so customers can't choose {other}.",
+            f"Connect {other} to offer the choice.")
+    else:
+        add("Customer messages", "ok", "WhatsApp and SMS connected. Each customer gets messages on the one they chose.")
+    otp = auth.otp_channels()
+    if firebase.enabled():
+        add("SMS login codes (Firebase)", "ok", "Firebase sends SMS verification codes.")
+    if not otp:
+        add("Login codes", "warn", "No way to send verification codes: login and the first-booking discount are off.",
+            "Connect MSG91 (SMS) and/or WhatsApp.")
     last_backup, backup_err = db.kv_get("backup_day"), db.kv_get("backup_error")
     if backup_err:
         add("Backups", "bad", f"Today's backup failed: {backup_err}", "Check BACKUP_DIR exists and has free space.")
@@ -84,13 +83,10 @@ def checks():
     pending_ref = db.one("SELECT COUNT(*) AS n FROM payments WHERE refund_status='pending'")["n"]
     manual_ref = db.one("SELECT COUNT(*) AS n, COALESCE(SUM(refund_amount),0) AS a FROM payments "
                         "WHERE refund_status='manual'")
-    if config.PAYMENT_PROVIDER in DEMO and not config.DEMO_MODE:
+    if not config.ONLINE_PAY:
         add("Online payments", "warn", "Switched off: no payment gateway is connected, so customers can only "
             "reserve and pay at the venue. Memberships can't be bought online.",
             "Add your Razorpay keys (PAYMENT_PROVIDER=razorpay, RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET).")
-    elif config.PAYMENT_PROVIDER in DEMO:
-        add("Online payments", "warn", "Demo mode: 'Pay now' confirms without charging anyone.",
-            "Add Razorpay keys before going live.")
     elif config.RAZORPAY_TEST_KEYS:
         add("Online payments", "bad", f"Razorpay TEST keys are in use: {paid} 'payment(s)' in 24h took no real "
             "money, yet those bookings show as paid.",
@@ -137,8 +133,8 @@ def checks():
                 "Check the lock's gateway / bridge is powered and online.")
         else:
             add("Door lock connection", "ok", "Lock commands going through.")
-        seen = db.one("SELECT MAX(at) AS at, device_id FROM access_events WHERE device_id IS NOT NULL "
-                      "AND device_id NOT IN ('simulator')")
+        seen = db.one("SELECT MAX(at) AS at, device_id FROM access_events WHERE device_id IS NOT NULL"
+                      )
         if seen and seen["at"]:
             mins = (now - clock.parse(seen["at"])).total_seconds() / 60
             add("Door device", "ok" if mins < 24 * 60 else "warn",
@@ -179,9 +175,6 @@ def checks():
             "Set your own values in the host's environment settings, then redeploy.")
     else:
         add("Security settings", "ok", "Staff passwords are your own.")
-    if config.DEMO_MODE:
-        add("Demo mode", "bad", "ON: login codes show on screen and the /demo page lists the staff passwords.",
-            "Set DEMO_MODE=0 for the real site.")
     if config.env("RENDER") and not config.env("DB_PATH"):
         add("Data storage", "bad", "The database is on temporary storage: every restart or deploy erases all "
             "bookings, members and payments.", "Add a persistent disk and set DB_PATH (see DEPLOY.md).")

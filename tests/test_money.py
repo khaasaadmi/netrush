@@ -4,8 +4,8 @@
 """
 from datetime import datetime, timedelta
 
+from tests.test_core import rzp_proof, T0, Base  # first: it sets the test environment
 from app import access, analytics, auth, bookings, clock, config, db, health, members, payments
-from tests.test_core import T0, Base
 
 
 class RefundTests(Base):
@@ -21,7 +21,7 @@ class RefundTests(Base):
         self.assertEqual(self.run_quiet(bookings.cancel, half["id"])["refund"]["amount"],
                          config.PRICES["padel"] * config.REFUND_PARTIAL_PCT // 100)
         self.assertEqual(self.run_quiet(bookings.cancel, none["id"])["refund"]["amount"], 0)
-        self.assertEqual(self.paid(full)["refund_status"], "done")             # mock gateway refunds instantly
+        self.assertEqual(self.paid(full)["refund_status"], "done")             # Razorpay accepted the refund
         self.assertIsNone(self.paid(none)["refund_status"])
         self.assertEqual(len(self.sent("refund_issued")), 2)                   # 2 refunds, one channel each
         self.assertEqual(len(self.sent("booking_cancelled")), 3)
@@ -62,7 +62,7 @@ class RefundTests(Base):
         self.assertEqual(self.paid(b)["refund_status"], "done")
 
     def test_complimentary_booking(self):
-        b = self.run_quiet(bookings.create_by_staff, "K1", "2026-09-29", "09:00", 1, "Coach demo", "9877777777",
+        b = self.run_quiet(bookings.create_by_staff, "K1", "2026-09-29", "09:00", 1, "Coach trial", "9877777777",
                            "comp", "Desk")
         self.assertEqual(b["pay_status"], "comp")
         self.assertEqual(self.run_quiet(bookings.cancel, b["id"], "staff")["refund"]["amount"], 0)
@@ -73,7 +73,8 @@ class RefundTests(Base):
         bookings.expire_holds()
         self.book_and_pay("P1", "20:00", phone="9822222222")
         with self.assertRaises(bookings.BookingError):
-            self.run_quiet(bookings.confirm_payment, slow["booking"]["id"], {})
+            self.run_quiet(bookings.confirm_payment, slow["booking"]["id"],
+                          rzp_proof(slow["payment"]["payment_id"]))
         self.assertEqual(bookings.get(slow["booking"]["id"])["status"], "cancelled")
         self.assertEqual(self.paid(slow["booking"])["refund_status"], "done")
 
@@ -101,7 +102,7 @@ class OnlineMembershipTests(Base):
         kabir = db.one("SELECT id FROM users WHERE phone='9000000003'")  # current plan ends T0+25
         pay = self.run_quiet(members.order_membership, kabir["id"], 3)
         self.assertEqual(pay["amount"], 3 * config.ONLINE_MEMBERSHIP_MONTHLY)
-        p, _ = payments.capture(pay["payment_id"], {})
+        p, _ = payments.capture(pay["payment_id"], rzp_proof(pay["payment_id"]))
         m = self.run_quiet(members.complete_membership, p)
         self.assertEqual(m["start_date"], "2026-10-24")                    # continues after current plan
         self.assertEqual(m["end_date"], "2027-01-21")                      # 90 days
@@ -130,7 +131,13 @@ class ReportTests(Base):
         self.assertEqual(r["bookings"]["by_source"], {"online": 1, "desk": 1})
         self.assertTrue(r["insights"])
         status = {c["area"]: c["status"] for c in health.checks()}
-        self.assertEqual(status["Security settings"], "bad")               # demo password still set
+        self.assertEqual(status["Security settings"], "ok")                # own passwords set
+        saved = config.ADMIN_PASSWORD
+        config.ADMIN_PASSWORD = "admin123"
+        try:
+            self.assertEqual({c["area"]: c["status"] for c in health.checks()}["Security settings"], "bad")
+        finally:
+            config.ADMIN_PASSWORD = saved
         self.assertEqual(status["Automation (scheduler)"], "bad")          # never ticked in this test
 
     def test_prices(self):

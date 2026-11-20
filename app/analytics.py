@@ -110,7 +110,7 @@ def report(days=30):
                      t)["n"]
     online_plan = seed.online_plan_id()
     members = {"active": active_members, "new": len(new_m), "renewals": renewals,
-               "new_online": sum(1 for m in new_m if m["provider"] in ("mock", "razorpay")),
+               "new_online": sum(1 for m in new_m if m["provider"] == "razorpay"),
                "lapsed": lapsed, "expiring_7d": expiring, "academy_players": players, "fees_overdue": overdue,
                "online_plan_id": online_plan}
 

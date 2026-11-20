@@ -235,7 +235,7 @@ def confirm_reservation(booking_id, staff, paid=False, method="cash", advance=No
 STAFF_MODES = {
     "desk_paid": ("paid", "desk"),   # cash / UPI at the counter
     "unpaid": ("unpaid", "phone"),   # reservation taken on a call, pays later
-    "comp": ("comp", "desk"),        # complimentary: coaching demo, sponsor, make-good
+    "comp": ("comp", "desk"),        # complimentary: coaching trial, sponsor, make-good
 }
 
 

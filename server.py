@@ -24,7 +24,7 @@ from app.payments import PaymentError
 
 STATIC = Path(__file__).parent / "static"
 PAGES = {"/": "landing.html", "/book": "book.html", "/portal": "portal.html", "/admin": "admin.html", "/pay": "pay.html",
-         "/booking": "booking.html", "/demo": "demo.html", "/door": "door.html"}
+         "/booking": "booking.html"}
 TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "application/javascript",
          ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".jpg": "image/jpeg",
          ".jpeg": "image/jpeg", ".webp": "image/webp", ".txt": "text/plain; charset=utf-8",
@@ -69,7 +69,7 @@ def get_config(req):
             "horizon_days": config.BOOKING_HORIZON_DAYS, "slot_min": config.SLOT_MIN,
             "door_code_lead_min": config.DOOR_CODE_LEAD_MIN, "hold_min": config.HOLD_MIN,
             "payment_provider": config.PAYMENT_PROVIDER, "refund_policy": bookings.refund_policy_text(),
-            "demo": config.DEMO_MODE, "lock": config.LOCK_ENABLED, "otp": auth.otp_available(),
+            "lock": config.LOCK_ENABLED, "otp": auth.otp_available(),
             "online_pay": config.ONLINE_PAY,
             "otp_channels": auth.otp_channels(), "message_channels": notify.message_channels(),
             "default_channel": config.DEFAULT_CHANNEL, "firebase": firebase.client_config(),
@@ -224,7 +224,7 @@ def pay_info(req):
     else:
         months = json.loads(p["meta"] or "{}").get("months", 1)
         out["title"] = "Membership"
-        out["detail"] = f"{months} month{'s' if months > 1 else ''} · all courts · fingerprint entry"
+        out["detail"] = f"{months} month{'s' if months > 1 else ''} · all courts · face-recognition entry"
     if p["provider"] == "razorpay":
         out.update(key_id=config.RAZORPAY_KEY_ID, order_id=p["order_id"])
     return out
@@ -302,11 +302,8 @@ def _public_booking(b, with_quote=False):
 
 @route("POST", "/api/auth/request-code")
 def request_code(req):
-    code, is_new, _ = auth.request_login_code(req.body.get("phone"), req.ip, req.body.get("channel"))
-    out = {"ok": True, "new": is_new}
-    if config.DEMO_MODE:
-        out["demo_code"] = code  # demo only: no real SMS goes out, so show it
-    return out
+    _, is_new, _ = auth.request_login_code(req.body.get("phone"), req.ip, req.body.get("channel"))
+    return {"ok": True, "new": is_new}
 
 
 @route("POST", "/api/auth/verify")
@@ -417,59 +414,6 @@ def me_pay_booking(req, bid):
     if not b or b["phone"] != req.user["phone"]:
         raise HttpError(404, "Booking not found")
     return {"redirect": bookings.start_payment(b)["redirect"]}
-
-
-# ------------------------------------------------------------------ demo helpers (DEMO_MODE only)
-
-def _demo_only():
-    if not config.DEMO_MODE:
-        raise HttpError(404, "Not found")
-
-
-@route("GET", "/api/demo/info")
-def demo_info(req):
-    _demo_only()
-    return {"logins": [
-        {"role": "Admin (everything + analytics)", "login": config.ADMIN_PHONE,
-         "secret": "password: " + config.ADMIN_PASSWORD, "where": "/admin"},
-        {"role": "Receptionist (bookings + members)", "login": config.RECEPTION_PHONE,
-         "secret": "password: " + config.RECEPTION_PASSWORD, "where": "/admin"},
-        {"role": "Member (plan ends in 7 days)", "login": auth.member_id(2),
-         "secret": "password: member123", "where": "/portal"},
-        {"role": "Academy player (first sign-in: must set a password)", "login": auth.member_id(5),
-         "secret": "temporary password: welcome1", "where": "/portal"},
-        {"role": "Guest (new customer)", "login": "any new 10-digit mobile number",
-         "secret": "code shown on screen", "where": "/book"},
-    ], "lock": config.LOCK_ENABLED, "fingerprints": [{"id": "101", "who": "Aarav Mehta (member, active)"},
-                        {"id": "104", "who": "Ishaan Verma (academy, fees paid)"},
-                        {"id": "115", "who": "Farhan Sheikh (membership expired)"}]}
-
-
-@route("GET", "/api/demo/messages")
-def demo_messages(req):
-    _demo_only()
-    phone = "".join(ch for ch in req.query.get("phone", "") if ch.isdigit())[-10:]
-    rows = db.all_("SELECT id, created_at, kind, channel, to_phone, body, status FROM notifications "
-                   + ("WHERE to_phone=? " if phone else "") + "ORDER BY id DESC LIMIT 80", *([phone] if phone else []))
-    return {"messages": rows}
-
-
-@route("POST", "/api/demo/door")
-def demo_door(req):
-    """The web keypad: exactly what the door hardware would ask the server."""
-    _demo_only()
-    b = req.body
-    if b.get("fingerprint_user_id"):
-        return access.verify_fingerprint(str(b["fingerprint_user_id"]), "web-keypad")
-    return access.verify_code(b.get("code"), "web-keypad")
-
-
-@route("POST", "/api/admin/demo-reset", "admin")
-def demo_reset(req):
-    _demo_only()
-    db.reset()
-    access.sync_member_access()
-    return {"ok": True}
 
 
 # ------------------------------------------------------------------ door device
@@ -768,15 +712,6 @@ def run_tick(req):
     return {"ok": True}
 
 
-@route("POST", "/api/admin/simulate-door", "staff")
-def simulate_door(req):
-    """Try the door without hardware: behaves exactly like the keypad / fingerprint reader calling in."""
-    b = req.body
-    if b.get("fingerprint_user_id"):
-        return access.verify_fingerprint(b["fingerprint_user_id"], "simulator")
-    return access.verify_code(b.get("code"), "simulator")
-
-
 # ------------------------------------------------------------------ plumbing
 
 class Req:
@@ -885,9 +820,6 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(out.body)
 
     def _static(self, path):
-        if (path == "/demo" and not config.DEMO_MODE) or \
-                (path == "/door" and not (config.DEMO_MODE and config.LOCK_ENABLED)):
-            return self.send_error(404)
         name = PAGES.get(path, path.lstrip("/"))
         f = (STATIC / name).resolve()
         if not str(f).startswith(str(STATIC.resolve())) or not f.is_file():
@@ -909,7 +841,7 @@ def main():
     print(f"{config.FACILITY_NAME} running on http://localhost:{config.PORT}\n"
           f"  landing  /   booking  /book   members  /portal   staff  /admin  (login {config.ADMIN_PHONE} / "
           f"{'<ADMIN_PASSWORD>' if config.ADMIN_PASSWORD != 'admin123' else 'admin123'})\n"
-          f"  demo={'ON' if config.DEMO_MODE else 'off'} online_pay={'on' if config.ONLINE_PAY else 'OFF'} "
+          f"  online_pay={'on' if config.ONLINE_PAY else 'OFF'} "
           f"lock={'on' if config.LOCK_ENABLED else 'off'}\n"
           f"  sms={config.SMS_PROVIDER} whatsapp={config.WHATSAPP_PROVIDER} lock={config.LOCK_PROVIDER} "
           f"payment={config.PAYMENT_PROVIDER}", flush=True)

@@ -49,10 +49,10 @@ const Otp = {
     })();
     return this._fb;
   },
-  // Returns {demo_code?, new?}. Throws with a readable message.
+  // Returns {new?}. Throws with a readable message.
   async send(cfg, phone, channel) {
     this._confirm = null; this.token = null;
-    if (channel === "sms" && cfg.firebase && !cfg.demo) {
+    if (channel === "sms" && cfg.firebase) {
       const auth = await this._auth(cfg);
       let box = $("#recaptcha-box");
       if (!box) { box = document.createElement("div"); box.id = "recaptcha-box"; document.body.append(box); }
@@ -136,18 +136,6 @@ const ICON = {
   door: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 21V4a1 1 0 011-1h12a1 1 0 011 1v17M3 21h18"/><circle cx="15" cy="12" r="1" fill="currentColor"/></svg>`,
   chat: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z"/></svg>`,
 };
-
-// Demo mode: a lime strip under the header linking the demo phone and demo logins.
-function demoBar(cfg) {
-  if (!cfg || !cfg.demo || $(".demo-bar")) return;
-  const bar = document.createElement("div");
-  bar.className = "demo-bar";
-  bar.innerHTML = `<div class="wrap"><b>DEMO</b><span>No real SMS or payments. Everything else is live.</span>
-    <span class="spacer"></span><a href="/demo" target="_blank">📱 Demo phone</a>
-    ${cfg.lock ? `<a href="/door" target="_blank">🚪 Door keypad</a>` : ""}<a href="/demo#logins" target="_blank">🔑 Demo logins</a></div>`;
-  const header = $("header.top");
-  header ? header.after(bar) : document.body.prepend(bar);
-}
 
 // ---- Where did this visitor come from? (first-party, no personal data)
 // A tagged link (?utm_source=agency&utm_campaign=x) or an outside referrer sets the source; it is kept for

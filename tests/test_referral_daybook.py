@@ -1,6 +1,6 @@
 """Referral credit, payments taken by staff (cash / UPI QR / card), advances and the day book."""
 from app import analytics, auth, bookings, config, db, members, payments
-from tests.test_core import Base
+from tests.test_core import rzp_proof, Base
 
 
 class ReferralTests(Base):
@@ -19,7 +19,7 @@ class ReferralTests(Base):
     def buy_online(self, uid, months=1):
         pay = self.run_quiet(members.order_membership, uid, months)
         if pay["amount"]:
-            p, _ = payments.capture(pay["payment_id"], {})
+            p, _ = payments.capture(pay["payment_id"], rzp_proof(pay["payment_id"]))
             self.run_quiet(members.complete_membership, p)
         return pay
 

@@ -67,7 +67,7 @@
 
       <div id="l-guest" class="hidden">
       <p class="small muted">Guests: enter your mobile number and we'll send a 6-digit code. Members, use the Member tab.</p>
-      <div class="demo-hint hidden" id="l-ref" style="margin-bottom:12px"></div>
+      <div class="hint hidden" id="l-ref" style="margin-bottom:12px"></div>
       <div id="l-step1">
         <div class="field"><label for="l-phone">Mobile number</label><input id="l-phone" autocomplete="tel" inputmode="tel" placeholder="10-digit mobile"></div>
         <div class="field" id="l-chan-f"><label>Send my code by</label><div id="l-chan"></div></div>
@@ -80,12 +80,10 @@
           <div class="field"><label for="l-name">Welcome! Your name *</label><input id="l-name" autocomplete="name"></div>
           <div class="field"><label for="l-refcode">Friend's referral code (optional)</label><input id="l-refcode" placeholder="NR-0012"></div>
         </div>
-        <div class="demo-hint hidden" id="l-demo" style="margin-top:12px"></div>
         <button id="l-verify" class="block" style="margin-top:16px">Continue</button>
         <button id="l-back" class="ghost block" style="margin-top:8px">Use a different number</button>
       </div>
       </div>
-      <div class="demo-hint hidden" id="l-creds" style="margin-top:18px"></div>
       <p class="small muted hidden" id="l-off" style="margin-top:14px"></p>
     </div>
   </section>
@@ -114,7 +112,7 @@ if (/^nr-?\d+$/i.test(q0.get("ref") || "")) store.set("nr_ref", q0.get("ref").to
 
 async function load() {
   CFG = CFG || await api("/api/config");
-  demoBar(CFG); rememberCampaign();
+  rememberCampaign();
   $("#facility").textContent = CFG.facility; document.title = "My " + CFG.facility;
   $("#mprice").textContent = Number(CFG.membership_monthly).toLocaleString("en-IN");
   $("#rprice").textContent = CFG.referral_reward;
@@ -129,8 +127,6 @@ async function load() {
     const ref = store.get("nr_ref");
     if (ref) { $("#l-ref").classList.remove("hidden"); $("#l-refcode").value = ref;
       $("#l-ref").innerHTML = `<b>You were invited by member ${esc(ref)}.</b> Sign up and take a membership: they get ₹${CFG.referral_reward} off, and you join the club.`; }
-    if (CFG.demo) { $("#l-creds").classList.remove("hidden");
-      $("#l-creds").innerHTML = `<b>Demo:</b> member <code>NR-0002</code> / <code>member123</code> · academy player <code>NR-0005</code> / <code>welcome1</code> (first sign-in) · guests: any new mobile.`; }
     if (ref) setTab("guest");
     channelPicker($("#l-chan"), CFG.otp_channels, CFG.default_channel);
     $("#l-chan-f").classList.toggle("hidden", !CFG.otp_channels.length);
@@ -143,14 +139,11 @@ async function load() {
 $("#l-send").onclick = async () => {
   $("#l-send").disabled = true;
   try {
-    if (/^\s*nr/i.test($("#l-phone").value) && $("#l-chan").dataset.value === "sms" && CFG.firebase && !CFG.demo)
+    if (/^\s*nr/i.test($("#l-phone").value) && $("#l-chan").dataset.value === "sms" && CFG.firebase)
       throw new Error("For an SMS code, please enter your mobile number instead of your member ID.");
     const r = await Otp.send(CFG, $("#l-phone").value, $("#l-chan").dataset.value);
     $("#l-step1").classList.add("hidden"); $("#l-step2").classList.remove("hidden");
     $("#l-new").classList.toggle("hidden", !r.new);
-    $("#l-demo").classList.toggle("hidden", !r.demo_code);
-    if (r.demo_code) { $("#l-code").value = r.demo_code;
-      $("#l-demo").innerHTML = `Demo mode, so nothing is sent. Your code is <code>${r.demo_code}</code> (also on the <a href="/demo" target="_blank">demo phone</a>).`; }
     (r.new ? $("#l-name") : $("#l-code")).focus();
   } catch (e) { toast(e.message, true); } finally { $("#l-send").disabled = !CFG.otp; }
 };
@@ -265,12 +258,12 @@ function render(s) {
       ${memList}
       <div class="plans">${o.months.map(n => `<button class="plan" data-m="${n}" aria-pressed="${n === pick}">
         <b>${n} month${n > 1 ? "s" : ""}</b><span>${rupees(o.monthly * n)}</span></button>`).join("")}</div>
-      ${credit ? `<div class="demo-hint" style="margin-bottom:10px"><b>Referral credit applied: − ${rupees(credit)}</b>${rf.credit > credit ? ` (${rupees(rf.credit - credit)} stays for next time)` : ""}</div>` : ""}
+      ${credit ? `<div class="hint" style="margin-bottom:10px"><b>Referral credit applied: − ${rupees(credit)}</b>${rf.credit > credit ? ` (${rupees(rf.credit - credit)} stays for next time)` : ""}</div>` : ""}
       <p class="small muted">${isMember ? `Starts ${niceDate(o.starts)}, the day after your current plan ends, so you lose no days.` : `Starts today, ${niceDate(o.starts)}.`}</p>
       ${rf.can_enter_code ? `<div class="row" style="flex-wrap:nowrap;margin-bottom:12px"><input id="rc" placeholder="Friend's referral code, e.g. NR-0012" value="${esc(store.get("nr_ref") || "")}"><button class="ghost sm" id="rc-go">Apply</button></div>`
         : rf.referred_by && !isMember ? `<p class="small" style="color:var(--ok)"><b>✓ Referred by ${esc(rf.referred_by)}.</b> They get ₹${rf.reward} off when you join.</p>` : ""}
       ${CFG.online_pay || !due ? `<button class="lime block" id="buy">${due ? `Pay ${rupees(due)} →` : "Activate with referral credit →"}</button>`
-        : `<div class="demo-hint">Online payment opens soon. To join or renew now, pay at the reception or call <a href="tel:${esc(CFG.arena.phone.replace(/\s/g, ""))}"><b>${esc(CFG.arena.phone)}</b></a>.</div>`}
+        : `<div class="hint">Online payment opens soon. To join or renew now, pay at the reception or call <a href="tel:${esc(CFG.arena.phone.replace(/\s/g, ""))}"><b>${esc(CFG.arena.phone)}</b></a>.</div>`}
     </div>`;
 
   const refer = rf.can_share ? `<div class="card">

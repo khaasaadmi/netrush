@@ -80,8 +80,7 @@
       <div class="row" style="margin-top:10px"><button class="sm" id="otp-send">Send code</button></div></div>
     <div id="offer-code" class="hidden"><b>Enter the 6-digit code</b> we sent by <span id="otp-via">message</span>.
       <div class="row" style="margin-top:10px;flex-wrap:nowrap"><input id="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code"
-        style="width:140px;letter-spacing:.25em;font-weight:800"><button class="sm" id="otp-verify">Verify</button></div>
-      <div class="tiny" id="otp-demo" style="margin-top:6px"></div></div>
+        style="width:140px;letter-spacing:.25em;font-weight:800"><button class="sm" id="otp-verify">Verify</button></div></div>
     <div id="offer-done" class="hidden"></div>
   </div>
 
@@ -113,7 +112,7 @@ const digits = v => v.replace(/\D/g, "").slice(-10);
 
 async function init() {
   S.cfg = await api("/api/config");
-  demoBar(S.cfg); rememberCampaign();
+  rememberCampaign();
   document.title = "Book a Court · " + S.cfg.facility;
   $("#facility").textContent = S.cfg.facility;
   const mc = S.cfg.message_channels;
@@ -298,10 +297,9 @@ $("#otp-send").onclick = async () => {
   if (digits($("#phone").value).length !== 10) { toast("Enter your 10-digit mobile number", true); return $("#phone").focus(); }
   $("#otp-send").disabled = true;
   try {
-    const r = await Otp.send(S.cfg, $("#phone").value, chosenOtpChannel());
+    await Otp.send(S.cfg, $("#phone").value, chosenOtpChannel());
     $("#otp-via").textContent = CHANNEL_LABEL[chosenOtpChannel()];
     $("#offer-ask").classList.add("hidden"); $("#offer-code").classList.remove("hidden"); $("#otp").focus();
-    if (r.demo_code) { $("#otp").value = r.demo_code; $("#otp-demo").textContent = `Demo mode: nothing is sent. Your code is ${r.demo_code}.`; }
   } catch (e) { toast(e.message, true); } finally { $("#otp-send").disabled = false; }
 };
 $("#otp-verify").onclick = async () => {

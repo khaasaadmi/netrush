@@ -19,12 +19,11 @@ Python standard library + SQLite, no build step. The one extra package is `pyzk`
 python server.py
 ```
 
-A git-ignored `.env` file with `DEMO_MODE=1` gives a local demo: demo people and a month of history, a mock payment
-page, login codes shown on screen, and a `/demo` page showing every message. Demo logins: admin
-`9999999999` / `admin123`, reception `8888888888` / `desk123`, member `NR-0002`, academy player `NR-0005`.
+Settings come from a git-ignored `.env` file (copy `.env.example`). A fresh database holds only the courts, the
+membership plans and the two staff logins; set your own `ADMIN_PASSWORD` and `RECEPTION_PASSWORD` first, because
+the defaults are refused. "Pay now" stays hidden until Razorpay keys are added.
 
-Without `DEMO_MODE=1` the site runs as the real thing: empty, no demo pages, and online payment hidden until a
-gateway is connected.
+The tests replace Razorpay, SMS and WhatsApp with fakes, so they never call a real service:
 
 ```bash
 python -m unittest discover -s tests
@@ -76,7 +75,7 @@ app/firebase.py      optional Firebase Phone Auth (not used by default: MSG91 is
 app/zkteco.py        keeps the ZKTeco terminal in step: guest codes, member access, entry log, clock
 app/notify.py        WhatsApp and SMS providers, one chosen channel per customer, de-duplication
 app/access.py        door codes, who may enter, lock adapters
-app/seed.py          courts, plans, staff logins, demo data
+app/seed.py          courts, plans, staff logins (first run only)
 static/              landing, book, pay, booking, portal, admin, brand/ (logo files)
 netlify.toml         Netlify: serve static/, forward /api to the arena server
 deploy/windows/      one-time laptop setup (start at boot, no sleep), restart and update scripts

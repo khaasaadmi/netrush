@@ -52,12 +52,6 @@
   to = "/admin.html"
   status = 200
 
-# demo-only pages are never part of the live site
-[[redirects]]
-  from = "/demo*"
-  to = "/"
-  status = 302
-  force = true
 
 [[redirects]]
   from = "/door*"

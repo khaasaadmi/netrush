@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS payments (
     user_id         INTEGER,
     phone           TEXT,
     amount          INTEGER NOT NULL,  -- rupees
-    provider        TEXT NOT NULL,     -- mock | razorpay | desk (taken by staff)
+    provider        TEXT NOT NULL,     -- razorpay | desk (taken by staff)
     order_id        TEXT,              -- gateway order id
     payment_id      TEXT,              -- gateway payment id
     status          TEXT NOT NULL,     -- created | paid
@@ -238,7 +238,7 @@ def init(path=None):
     _upgrade(c)
     c.executescript(SCHEMA)
     from . import seed
-    c.execute("BEGIN")  # one transaction: seeding thousands of demo rows one commit at a time is slow
+    c.execute("BEGIN")  # first-run setup in one transaction
     seed.seed(c)
     seed.ensure_online_plan(c)
     seed.ensure_reception(c)
@@ -317,23 +317,6 @@ def kv_get(k, default=None):
 
 def kv_set(k, v):
     conn().execute("INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (k, v))
-
-
-TABLES = ["event_enquiries", "visits", "sessions", "login_otps", "notifications", "access_events", "door_codes", "payments", "bookings",
-          "court_blocks", "academy_enrollments", "academy_batches", "memberships", "plans", "courts", "users", "kv"]
-
-
-def reset():
-    """Demo only: wipe everything and seed fresh demo data."""
-    c = conn()
-    c.execute("BEGIN IMMEDIATE")
-    for t in TABLES:
-        c.execute(f"DELETE FROM {t}")
-    from . import seed
-    seed.seed(c)
-    seed.ensure_online_plan(c)
-    seed.ensure_reception(c)
-    c.execute("COMMIT")
 
 
 def backup(folder, keep_days=30):

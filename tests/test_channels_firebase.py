@@ -7,7 +7,7 @@ import os
 import random
 import time
 
-from tests.test_core import Base  # first: it sets the test environment before the app reads its config
+from tests.test_core import rzp_proof, Base  # first: it sets the test environment before the app reads its config
 from app import access, auth, bookings, config, db, firebase, notify  # noqa: E402
 
 # ------------------------------------------------------------------ a throwaway RSA key to sign test tokens
@@ -128,13 +128,9 @@ class FirebaseTests(Base):
             auth.login_with_firebase(make_token(claims(phone="+919000000001")))
 
     def test_sms_codes_come_from_firebase_not_the_server(self):
-        config.DEMO_MODE = False
-        try:
-            self.assertIn("sms", auth.otp_channels())
-            with self.assertRaises(auth.AuthError):
-                self.run_quiet(auth.request_login_code, "9812345678", None, "sms")
-        finally:
-            config.DEMO_MODE = True
+        self.assertIn("sms", auth.otp_channels())
+        with self.assertRaises(auth.AuthError):
+            self.run_quiet(auth.request_login_code, "9812345678", None, "sms")
 
 
 class ChannelTests(Base):
@@ -151,7 +147,7 @@ class ChannelTests(Base):
                            "pay", None, None, None, "whatsapp")["booking"]
         p = db.one("SELECT id FROM payments WHERE kind='booking' AND ref_id=?", b["id"])
         from app import payments
-        self.run_quiet(bookings.fulfil, payments.capture(p["id"], {})[0])
+        self.run_quiet(bookings.fulfil, payments.capture(p["id"], rzp_proof(p["id"]))[0])
         from datetime import datetime
         from app import clock, access
         clock.set_now(datetime(2026, 9, 28, 19, 50))                          # 10 minutes before the slot
@@ -168,7 +164,6 @@ class ChannelTests(Base):
         self.assertEqual(notify.channels_for("9000000001"), ["sms"])
 
     def test_falls_back_when_the_chosen_channel_is_not_connected(self):
-        config.DEMO_MODE = False
         saved = (config.SMS_PROVIDER, config.WHATSAPP_PROVIDER)
         try:
             config.SMS_PROVIDER, config.WHATSAPP_PROVIDER = "console", "meta"      # only WhatsApp connected
@@ -179,7 +174,6 @@ class ChannelTests(Base):
             self.assertEqual(notify.channels_for("9811111111", "login_otp", "sms"), ["sms"])
         finally:
             config.SMS_PROVIDER, config.WHATSAPP_PROVIDER = saved
-            config.DEMO_MODE = True
 
 
 class LockApiTests(Base):
@@ -227,7 +221,6 @@ class BackupTests(Base):
 
 class Msg91Tests(Base):
     def test_sms_types_without_an_approved_template_fall_back_to_whatsapp(self):
-        config.DEMO_MODE = False
         saved = (config.SMS_PROVIDER, config.WHATSAPP_PROVIDER, dict(config.MSG91_FLOWS))
         try:
             config.SMS_PROVIDER, config.WHATSAPP_PROVIDER = "msg91", "meta"
@@ -240,4 +233,3 @@ class Msg91Tests(Base):
         finally:
             config.SMS_PROVIDER, config.WHATSAPP_PROVIDER = saved[0], saved[1]
             config.MSG91_FLOWS.clear(); config.MSG91_FLOWS.update(saved[2])
-            config.DEMO_MODE = True

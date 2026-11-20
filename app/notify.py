@@ -149,8 +149,6 @@ CHANNELS = ("whatsapp", "sms")
 
 def can_send(ch, kind=""):
     """Is a real provider connected for this channel (and message type)?"""
-    if config.DEMO_MODE:
-        return True
     if ch == "sms":
         if config.SMS_PROVIDER == "console":
             return False
@@ -230,6 +228,6 @@ def send(kind, phone, params, dedupe_key=None, channels=None, booking_channel=No
 def _redact(kind, text):
     """Login codes don't belong in a log staff can read. Door codes stay — the desk needs them
     to help someone stuck at the door."""
-    if kind == "login_otp" and not config.DEMO_MODE:  # demo: the "demo phone" page needs to show it
+    if kind == "login_otp":
         return "(login code sent)"
     return text

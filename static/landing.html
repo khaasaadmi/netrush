@@ -324,7 +324,7 @@ api("/api/pricing").then(p => {
 }).catch(() => {});
 
 api("/api/config").then(cfg => {
-  demoBar(cfg); rememberCampaign();
+  rememberCampaign();
   const hours = `${h12(cfg.open_hour)} – ${h12(cfg.close_hour)}`, tel = cfg.arena.phone.replace(/\s/g, "");
   $("#t-courts").textContent = cfg.sports.reduce((n, s) => n + s.courts.length, 0);
   $("#t-hours").textContent = hours; $("#v-hours").textContent = hours;

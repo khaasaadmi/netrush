@@ -9,7 +9,7 @@ again every scheduler tick) sends it to the gateway, retrying a few times before
 staff. Cash / UPI taken at the desk can't be refunded by the gateway, so those are flagged
 'manual' for the desk to hand back.
 
-provider: mock (demo, instant) | razorpay | desk (cash/UPI at the counter)
+provider: razorpay (online) | desk (cash / UPI QR / card taken by staff)
 """
 import base64
 import hashlib
@@ -52,23 +52,19 @@ def for_ref(kind, ref_id):
 
 def create_order(kind, amount, receipt, phone, user_id=None, ref_id=None, meta=None):
     """Start an online payment. Returns what the browser needs to open Checkout."""
-    provider = config.PAYMENT_PROVIDER
-    if provider not in ("mock", "razorpay"):
-        raise PaymentError(f"unknown PAYMENT_PROVIDER {provider}")
-    order_id = None
-    if provider == "razorpay":
-        order_id = _razorpay("POST", "/orders", {"amount": amount * 100, "currency": "INR", "receipt": receipt})["id"]
+    if not config.ONLINE_PAY:
+        raise PaymentError("Online payment isn't available yet. Please pay at the venue.")
+    provider = "razorpay"
+    order_id = _razorpay("POST", "/orders", {"amount": amount * 100, "currency": "INR", "receipt": receipt})["id"]
     secret = secrets.token_urlsafe(16)
     pid = db.conn().execute(
         "INSERT INTO payments(kind,ref_id,user_id,phone,amount,provider,order_id,status,meta,created_at,secret,"
         "method) VALUES(?,?,?,?,?,?,?,'created',?,?,?,'online')",
         (kind, ref_id, user_id, phone, amount, provider, order_id, json.dumps(meta or {}),
          clock.fmt(clock.now()), secret)).lastrowid
-    # The browser is redirected to our payment page, which runs the gateway (or the mock one).
-    out = {"provider": provider, "payment_id": pid, "amount": amount, "redirect": f"/pay?id={pid}&k={secret}"}
-    if provider == "razorpay":
-        out.update(key_id=config.RAZORPAY_KEY_ID, order_id=order_id, amount_paise=amount * 100, currency="INR")
-    return out
+    # The browser is redirected to our payment page, which opens Razorpay Checkout.
+    return {"provider": provider, "payment_id": pid, "amount": amount, "redirect": f"/pay?id={pid}&k={secret}",
+            "key_id": config.RAZORPAY_KEY_ID, "order_id": order_id, "amount_paise": amount * 100, "currency": "INR"}
 
 
 def capture(payment_row_id, payload):
@@ -79,9 +75,7 @@ def capture(payment_row_id, payload):
         raise PaymentError("Payment not found")
     if p["status"] == "paid":
         return p, False
-    if p["provider"] == "mock":
-        gateway_id = f"MOCK-{p['id']}"
-    elif p["provider"] == "razorpay":
+    if p["provider"] == "razorpay":
         order_id = payload.get("razorpay_order_id", "")
         gateway_id = payload.get("razorpay_payment_id", "")
         sig = payload.get("razorpay_signature", "")
@@ -179,11 +173,8 @@ def process_refunds():
     done = []
     for p in db.all_("SELECT * FROM payments WHERE refund_status='pending'"):
         try:
-            if p["provider"] == "mock":
-                refund_id = f"RFND-MOCK-{p['id']}"
-            else:
-                refund_id = _razorpay("POST", f"/payments/{p['payment_id']}/refund",
-                                      {"amount": p["refund_amount"] * 100, "speed": "normal"})["id"]
+            refund_id = _razorpay("POST", f"/payments/{p['payment_id']}/refund",
+                                  {"amount": p["refund_amount"] * 100, "speed": "normal"})["id"]
         except Exception as e:  # noqa: BLE001 — retried next tick
             attempts = p["refund_attempts"] + 1
             db.conn().execute(
@@ -194,7 +185,7 @@ def process_refunds():
                           "WHERE id=?", (refund_id, clock.fmt(clock.now()), p["id"]))
         notify.send("refund_issued", p["phone"], {
             "amount": f"Rs {p['refund_amount']}", "what": _describe(p),
-            "days": "5-7 working days" if p["provider"] == "razorpay" else "a few minutes",
+            "days": "5-7 working days",
         }, dedupe_key=f"refund:{p['id']}", booking_channel=_booking_channel(p))
         done.append(p["id"])
     return done

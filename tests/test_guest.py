@@ -4,8 +4,8 @@
 """
 from datetime import datetime, timedelta
 
+from tests.test_core import rzp_proof, T0, Base  # first: it sets the test environment
 from app import access, analytics, auth, bookings, clock, config, db, payments
-from tests.test_core import T0, Base
 
 
 class ReserveTests(Base):
@@ -45,7 +45,7 @@ class ReserveTests(Base):
     def test_customer_pays_reservation_online(self):
         b = self.reserve()
         pay = self.run_quiet(bookings.start_payment, bookings.get(b["id"]))
-        p, _ = payments.capture(pay["payment_id"], {})
+        p, _ = payments.capture(pay["payment_id"], rzp_proof(pay["payment_id"]))
         done = self.run_quiet(bookings.fulfil, p)
         self.assertEqual((done["status"], done["pay_status"]), ("confirmed", "paid"))
         with self.assertRaises(bookings.BookingError):
@@ -55,7 +55,7 @@ class ReserveTests(Base):
         b = self.reserve()
         self.run_quiet(bookings.confirm_reservation, b["id"], "Reception", False)
         pay = self.run_quiet(bookings.start_payment, bookings.get(b["id"]))
-        p, _ = payments.capture(pay["payment_id"], {})
+        p, _ = payments.capture(pay["payment_id"], rzp_proof(pay["payment_id"]))
         self.assertEqual(self.run_quiet(bookings.fulfil, p)["pay_status"], "paid")
 
     def test_cannot_reserve_a_slot_about_to_start(self):
@@ -88,7 +88,7 @@ class DiscountTests(Base):
         self.assertEqual(out["booking"]["discount"], 270)                   # 15% of 1800
         self.assertEqual(out["booking"]["amount"], 1530)
         self.assertEqual(out["payment"]["amount"], 1530)                    # the gateway charges the reduced price
-        p, _ = payments.capture(out["payment"]["payment_id"], {})
+        p, _ = payments.capture(out["payment"]["payment_id"], rzp_proof(out["payment"]["payment_id"]))
         self.run_quiet(bookings.fulfil, p)
         second = self.book(u, u["phone"], start="21:00")
         self.assertEqual(second["booking"]["discount"], 0)                  # first booking only
@@ -148,7 +148,7 @@ class RoleTests(Base):
     def test_route_guards(self):
         import server
         who = {fn.__name__: w for _, _, w, fn in server.ROUTES}
-        for admin_only in ("get_analytics", "get_health", "export", "add_staff", "remove_staff", "demo_reset"):
+        for admin_only in ("get_analytics", "get_health", "export", "add_staff", "remove_staff"):
             self.assertEqual(who[admin_only], "admin", admin_only)
         for staff in ("overview", "desk_booking", "confirm_reservation", "mark_paid", "cancel_booking", "people"):
             self.assertEqual(who[staff], "staff", staff)
@@ -166,13 +166,14 @@ class BookingOnlyModeTests(Base):
         finally:
             config.LOCK_ENABLED = True
 
-    def test_otp_unavailable_without_a_provider_outside_demo(self):
-        config.DEMO_MODE = False
+    def test_otp_unavailable_without_a_provider(self):
+        saved = (config.SMS_PROVIDER, config.WHATSAPP_PROVIDER)
+        config.SMS_PROVIDER = config.WHATSAPP_PROVIDER = "console"
         try:
             with self.assertRaises(auth.AuthError):
                 self.run_quiet(auth.request_login_code, "9812345678")
         finally:
-            config.DEMO_MODE = True
+            config.SMS_PROVIDER, config.WHATSAPP_PROVIDER = saved
 
 
 class TrackingTests(Base):
@@ -188,7 +189,7 @@ class TrackingTests(Base):
         tracking.record("d1", "", "", "", "", "/", "2.2.2.2")
         out = self.run_quiet(bookings.create, "P1", "2026-09-28", "20:00", 1, "Riya", "9811111111", None, "pay",
                              None, tracking.booking_tag("agency-one", "launch", ""), "Instagram")
-        p, _ = payments.capture(out["payment"]["payment_id"], {})
+        p, _ = payments.capture(out["payment"]["payment_id"], rzp_proof(out["payment"]["payment_id"]))
         self.run_quiet(bookings.fulfil, p)
         r = tracking.report(7)
         agency = next(s for s in r["sources"] if s["source"] == "agency-one")

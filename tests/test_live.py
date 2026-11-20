@@ -30,31 +30,27 @@ class LiveWithoutGatewayTests(Base):
 
 
 class DefaultPasswordTests(Base):
-    def test_default_staff_passwords_refused_on_the_real_site(self):
-        from app import auth
-        config.DEMO_MODE = False
-        try:
-            for phone, pw in ((config.ADMIN_PHONE, "admin123"), (config.RECEPTION_PHONE, "desk123")):
-                with self.assertRaises(auth.AuthError):
-                    auth.admin_login(phone, pw)
-        finally:
-            config.DEMO_MODE = True
-        self.assertTrue(auth.admin_login(config.ADMIN_PHONE, "admin123"))   # fine in a demo copy
+    def test_default_staff_passwords_are_always_refused(self):
+        from app import auth, db
+        for phone, pw in ((config.ADMIN_PHONE, "admin123"), (config.RECEPTION_PHONE, "desk123")):
+            db.conn().execute("UPDATE users SET password_hash=? WHERE phone=?", (auth.hash_password(pw), phone))
+            with self.assertRaises(auth.AuthError):
+                auth.admin_login(phone, pw)
 
 
 class DefaultsTests(Base):
-    def test_demo_is_off_unless_asked_for(self):
+    def test_fresh_install_is_empty_and_takes_no_online_money(self):
         import os
         import subprocess
         import sys
-        env = {k: v for k, v in os.environ.items() if k not in ("DEMO_MODE", "SEED_DEMO", "PAYMENT_PROVIDER")}
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("PAYMENT_", "RAZORPAY_"))}
         env["DB_PATH"] = os.path.join(self.tmp.name, "fresh.db")
         code = ("from app import config, db; db.init(); "
-                "print(config.DEMO_MODE, config.SEED_DEMO, config.ONLINE_PAY, "
+                "print(hasattr(config, 'DEMO_MODE'), config.ONLINE_PAY, "
                 "db.one('SELECT COUNT(*) AS n FROM users WHERE role IS NULL')['n'], "
                 "db.one('SELECT COUNT(*) AS n FROM bookings')['n'])")
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         # run from a folder with no .env so only the built-in defaults apply
         out = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, r'%s'); %s" % (root, code)],
                              env={**env, "NETRUSH_NO_DOTENV": "1"}, capture_output=True, text=True, cwd=self.tmp.name)
-        self.assertEqual(out.stdout.split(), ["False", "False", "False", "0", "0"], out.stderr)
+        self.assertEqual(out.stdout.split(), ["False", "False", "0", "0"], out.stderr)

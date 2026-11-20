@@ -45,7 +45,7 @@ const CLOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 let CFG, POLICY, timer;
 
 async function load() {
-  CFG = await api("/api/config"); demoBar(CFG);
+  CFG = await api("/api/config");
   $("#facility").textContent = CFG.facility;
   let r;
   try { r = await api(`/api/booking?ref=${encodeURIComponent(REF)}&k=${encodeURIComponent(K)}`); }

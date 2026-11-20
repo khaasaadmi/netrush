@@ -158,7 +158,7 @@ def _code_hash(phone, code):
 
 
 # Codes cost money to send and anyone can ask for one, so cap requests per client IP too.
-IP_MAX_REQUESTS, IP_WINDOW = (30 if config.DEMO_MODE else 5), 15 * 60  # demo: many people, one office IP
+IP_MAX_REQUESTS, IP_WINDOW = 5, 15 * 60
 _ip_hits = {}
 _ip_lock = threading.Lock()
 
@@ -197,14 +197,14 @@ def request_login_code(phone, ip=None, channel=None):
     """Send a one-time code on the channel the customer picked. Works for any number: new people
     sign up by logging in. (SMS codes go through Firebase in the browser when it's set up; this is
     the WhatsApp path and the fallback.) Returns (code, is_new, phone); the HTTP layer shows the
-    code only in DEMO_MODE."""
+    code only to tests."""
     phone = phone_for(phone)
     _guest_only(phone)
     chans = otp_channels()
     if not chans:
         raise AuthError("Mobile verification isn't switched on yet. Please call the arena.")
     channel = channel if channel in chans else chans[0]
-    if channel == "sms" and sms_otp_by_firebase() and not config.DEMO_MODE:
+    if channel == "sms" and sms_otp_by_firebase():
         raise AuthError("Please use the SMS option on the page to get your code.")
     prev = db.one("SELECT expires_at FROM login_otps WHERE phone=?", phone)
     if prev and clock.parse(prev["expires_at"]) - timedelta(minutes=OTP_TTL_MIN - 1) >= clock.now():
@@ -222,7 +222,7 @@ def request_login_code(phone, ip=None, channel=None):
 
 
 def otp_available():
-    """Codes can only reach a phone through Firebase or a real SMS/WhatsApp provider (or on screen in demo mode)."""
+    """Codes can only reach a phone through a connected SMS / WhatsApp provider (or Firebase)."""
     return bool(otp_channels())
 
 
@@ -298,8 +298,8 @@ def _login(phone, name=None, ref=None, pref=None):
 def admin_login(phone, password):
     """Staff login: admin or receptionist."""
     phone = normalize_phone(phone)
-    if not config.DEMO_MODE and password in ("admin123", "desk123"):
-        # The built-in demo passwords are public knowledge; never accept them on the real site.
+    if password in ("admin123", "desk123"):
+        # The built-in default passwords are public knowledge; never accept them.
         raise AuthError("This login still has its default password. Set ADMIN_PASSWORD and "
                         "RECEPTION_PASSWORD in the hosting settings, then redeploy.")
     u = db.one("SELECT id, password_hash FROM users WHERE phone=? AND role IN ('admin','reception')", phone)

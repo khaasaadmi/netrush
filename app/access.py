@@ -36,7 +36,7 @@ from . import clock, config, db, notify
 # ---------------------------------------------------------------- lock adapters
 
 class ConsoleLock:
-    """No hardware: prints what would be sent. Use for demos and to test the flow end to end."""
+    """No lock connected: logs what would be sent to it."""
 
     def add_code(self, code, valid_from, valid_to, label):
         print(f"[LOCK] add passcode {code} for {label}: {clock.fmt(valid_from)} -> {clock.fmt(valid_to)}", flush=True)

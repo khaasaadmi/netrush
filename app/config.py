@@ -1,8 +1,8 @@
 """All settings come from environment variables (or a .env file next to server.py).
 
-Every external integration defaults to "console" so the whole system runs and can be
-demoed with no accounts: messages print to the terminal and lock calls are logged.
-Swap a provider by setting its env var — nothing else changes.
+A provider that isn't connected yet (WhatsApp, SMS, payments, lock) is simply switched off: its
+messages are written to the server log and the features that need it hide themselves. Connect one
+by filling in its settings; nothing else changes.
 """
 import os
 from pathlib import Path
@@ -97,7 +97,7 @@ TWOFACTOR_API_KEY = env("TWOFACTOR_API_KEY")
 TWOFACTOR_TEMPLATE = env("TWOFACTOR_TEMPLATE", "OTP1")
 WHATSAPP_PROVIDER = env("WHATSAPP_PROVIDER", "console")  # console | meta
 LOCK_PROVIDER = env("LOCK_PROVIDER", "console")          # zkteco | console | http_bridge | ttlock
-PAYMENT_PROVIDER = env("PAYMENT_PROVIDER", "mock")       # mock | razorpay
+PAYMENT_PROVIDER = env("PAYMENT_PROVIDER", "none")       # none | razorpay
 
 TWILIO_SID = env("TWILIO_SID")
 TWILIO_TOKEN = env("TWILIO_TOKEN")
@@ -173,15 +173,9 @@ RAZORPAY_KEY_ID = env("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_SECRET")
 RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET")  # catches payments whose browser closed early
 
-# Demo mode, for showing the system without real SMS / payments: login codes appear on screen, a
-# "demo phone" page shows every message, the mock payment page works, and demo data is loaded.
-# OFF unless you set DEMO_MODE=1. Never turn it on for the real site.
-DEMO_MODE = env("DEMO_MODE", "0") == "1"
-SEED_DEMO = env("SEED_DEMO", "1" if DEMO_MODE else "0") == "1"
-
-# Customers can pay online only through a real gateway. The mock gateway confirms without charging,
-# so outside demo mode it is switched off and the site offers "reserve, pay at venue" only.
-ONLINE_PAY = PAYMENT_PROVIDER != "mock" or DEMO_MODE
+# Customers can pay online only once Razorpay is connected. Until then "Pay now" is hidden and the
+# site offers "reserve, pay at venue"; the desk takes cash, UPI and card.
+ONLINE_PAY = PAYMENT_PROVIDER == "razorpay" and bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
 RAZORPAY_TEST_KEYS = PAYMENT_PROVIDER == "razorpay" and RAZORPAY_KEY_ID.startswith("rzp_test_")
 
 # Behind a hosting proxy (Render, Railway, nginx…) the client's IP is the last X-Forwarded-For entry.

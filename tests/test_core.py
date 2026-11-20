@@ -13,15 +13,68 @@ import unittest
 from contextlib import redirect_stdout
 from datetime import date, datetime, timedelta
 
-os.environ["DEMO_MODE"] = "1"   # tests run against the demo setup (mock gateway, on-screen codes)
-os.environ["SEED_DEMO"] = "1"
-os.environ["SEED_HISTORY"] = "0"  # tests count money exactly
-os.environ["LOCK_ENABLED"] = "1"  # the door tests still run while the lock is switched off in production
+# The production code, with every outside service replaced by a fake: Razorpay answers from memory,
+# SMS / WhatsApp sends go nowhere, and a few known customers are loaded into each fresh database.
+os.environ.update({
+    "NETRUSH_NO_DOTENV": "1",
+    "LOCK_ENABLED": "1",                 # the door tests run even while the lock is off on the real site
+    "ADMIN_PASSWORD": "Unit-Admin-77", "RECEPTION_PASSWORD": "Unit-Desk-77", "DEVICE_SECRET": "unit-device-secret",
+    "PAYMENT_PROVIDER": "razorpay", "RAZORPAY_KEY_ID": "rzp_live_unittest", "RAZORPAY_KEY_SECRET": "unit-secret",
+    "RAZORPAY_WEBHOOK_SECRET": "unit-webhook-secret",
+    "SMS_PROVIDER": "twilio", "WHATSAPP_PROVIDER": "meta",
+})
 
 from app import (access, analytics, auth, bookings, clock, config, db, health,  # noqa: E402
-                 members, payments, scheduler)
+                 members, notify, payments, scheduler)
 
 T0 = datetime(2026, 9, 28, 8, 0)  # a Monday, 08:00
+
+# ---- fakes for the outside world
+_gateway = {"n": 0}
+
+
+def _fake_razorpay(method, path, body=None):
+    _gateway["n"] += 1
+    if path == "/orders":
+        return {"id": f"order_{_gateway['n']}"}
+    if path.endswith("/refund"):
+        return {"id": f"rfnd_{_gateway['n']}"}
+    raise AssertionError(f"unexpected Razorpay call {method} {path}")
+
+
+payments._razorpay = _fake_razorpay
+for _ch in notify.SENDERS:
+    notify.SENDERS[_ch] = lambda kind, phone, params, text: None
+
+
+def rzp_proof(payment_row_id):
+    """What Razorpay Checkout hands the browser after a successful payment, correctly signed."""
+    p = payments.get(payment_row_id)
+    gid = f"pay_{p['id']}"
+    sig = hmac.new(config.RAZORPAY_KEY_SECRET.encode(), f"{p['order_id']}|{gid}".encode(), hashlib.sha256).hexdigest()
+    return {"razorpay_order_id": p["order_id"], "razorpay_payment_id": gid, "razorpay_signature": sig}
+
+
+def load_people(c):
+    """Known customers: Aarav (member, plan ends in 7 days, has a password), Diya (plan ends today),
+    Kabir (healthy plan, no login yet), Ishaan (academy player, temporary password, fee due in 7 days).
+    They take user ids 2-5 (member IDs NR-0002 to NR-0005); the seeded receptionist moves aside."""
+    from datetime import timedelta as td
+    c.execute("UPDATE users SET id=90 WHERE role='reception'")
+    now = clock.fmt(clock.now())
+    d = lambda n: (clock.today() + td(days=n)).isoformat()
+    for uid, name, phone, lock in ((2, "Aarav Mehta", "9000000001", "101"), (3, "Diya Sharma", "9000000002", "102"),
+                                   (4, "Kabir Rao", "9000000003", None), (5, "Ishaan Verma", "9000000004", "104")):
+        c.execute("INSERT INTO users(id,name,phone,lock_user_id,created_at) VALUES(?,?,?,?,?)", (uid, name, phone, lock, now))
+    c.execute("UPDATE users SET password_hash=?, username='aarav' WHERE id=2", (auth.hash_password("member123"),))
+    c.execute("UPDATE users SET password_hash=?, must_change_pw=1, guardian_name='Rohit Verma' WHERE id=5",
+              (auth.hash_password("welcome1"),))
+    c.executemany("INSERT INTO memberships(user_id,plan_id,start_date,end_date,created_at) VALUES(?,?,?,?,?)",
+                  [(2, 1, d(-23), d(7), now), (3, 5, d(-29), d(0), now), (4, 3, d(-5), d(25), now)])
+    bid = c.execute("INSERT INTO academy_batches(name,coach,weekdays,start_time,end_time,court_ids,monthly_fee) "
+                    "VALUES('Junior Badminton - Evening','Coach Prakash','0,2,4','17:00','19:00','B1,B2',3000)").lastrowid
+    c.execute("INSERT INTO academy_enrollments(user_id,batch_id,level,fee_paid_until,created_at) VALUES(5,?,?,?,?)",
+              (bid, "Intermediate", d(7), now))
 
 
 class Base(unittest.TestCase):
@@ -33,6 +86,8 @@ class Base(unittest.TestCase):
         self.out = io.StringIO()
         with redirect_stdout(self.out):
             db.init(os.path.join(self.tmp.name, "t.db"))
+            with db.conn():
+                load_people(db.conn())
 
     def tearDown(self):
         db.conn().close()
@@ -46,7 +101,7 @@ class Base(unittest.TestCase):
 
     def book_and_pay(self, court="B1", start="18:00", day="2026-09-28", slots=1, phone="9811111111"):
         out = self.run_quiet(bookings.create, court, day, start, slots, "Riya Kapoor", phone)
-        return self.run_quiet(bookings.confirm_payment, out["booking"]["id"], {})
+        return self.run_quiet(bookings.confirm_payment, out["booking"]["id"], rzp_proof(out["payment"]["payment_id"]))
 
     def sent(self, kind):
         return db.all_("SELECT * FROM notifications WHERE kind=? AND status='sent'", kind)

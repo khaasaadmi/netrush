@@ -28,7 +28,6 @@
     <div class="field"><label for="a-phone">Phone</label><input id="a-phone" inputmode="tel" autocomplete="username"></div>
     <div class="field"><label for="a-pw">Password</label><input id="a-pw" type="password" autocomplete="current-password"></div>
     <button id="a-go" class="block" style="margin-top:18px">Log in</button>
-    <div class="demo-hint hidden" id="a-demo" style="margin-top:16px"></div>
   </div>
 </section>
 
@@ -192,17 +191,11 @@
         <div class="table-scroll"><table id="st-table"></table></div></div>
       <div class="stats4" id="h-sum"></div>
       <div class="card" id="h-list"></div>
-      <div class="card hidden" id="h-demo"><h2>Demo data</h2><p class="small muted">Wipe everything and reload the demo members, bookings and history.</p>
-        <button class="danger" id="h-reset">Reset demo data</button></div>
     </section>
 
     <!-- DOOR (only when the lock is switched on) -->
     <section data-panel="door" class="stack hidden">
       <div class="page-head"><div><div class="eyebrow">Access</div><h1 style="margin-top:4px">Door</h1></div></div>
-      <div class="card"><h2>Test the door</h2>
-        <div class="row" style="flex-wrap:nowrap"><input id="d-code" inputmode="numeric" maxlength="8" placeholder="Booking code"><button id="d-code-go">Try code</button></div>
-        <div class="row" style="flex-wrap:nowrap;margin-top:10px"><input id="d-fp" placeholder="Terminal user ID, e.g. 101"><button id="d-fp-go" class="ghost">Try finger</button></div>
-        <div id="d-result" style="margin-top:14px"></div></div>
       <div class="card"><h2>Access log</h2><div class="table-scroll"><table id="d-log"></table></div></div>
     </section>
 
@@ -279,8 +272,6 @@ async function boot() {
   catch (e) {
     if (e.status !== 401 && e.status !== 403) throw e;
     $("#login").classList.remove("hidden");
-    if (A.cfg.demo) { $("#a-demo").classList.remove("hidden");
-      $("#a-demo").innerHTML = `<b>Demo logins</b><br>Admin: <code>9999999999</code> / <code>admin123</code><br>Reception: <code>8888888888</code> / <code>desk123</code>`; }
     return;
   }
   const admin = A.me.role === "admin";
@@ -289,7 +280,6 @@ async function boot() {
   $$("[data-admin]").forEach(b => b.classList.toggle("hidden", !admin));
   $$("[data-lock]").forEach(b => b.classList.toggle("hidden", !A.cfg.lock));
   $$("[data-lockonly]").forEach(b => b.classList.toggle("hidden", !A.cfg.lock));
-  $("#h-demo").classList.toggle("hidden", !A.cfg.demo);
   const opts = A.cat.courts.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
   $("#w-court").innerHTML = opts; $("#k-court").innerHTML = opts;
   setMode("unpaid");
@@ -396,7 +386,7 @@ function renderToday() {
 
 const MODE_HINT = { unpaid: "For bookings taken over the phone. Confirmed right away, nothing charged yet. Collect when they arrive.",
   desk_paid: "Cash, the UPI QR or the card machine. Enter what you received: the full price, or an advance (the balance is collected later).",
-  comp: "Free booking (coaching demo, sponsor, make-good). Not counted as revenue." };
+  comp: "Free booking (trial session, sponsor, make-good). Not counted as revenue." };
 function priceNow() { const c = A.cat.courts.find(c => c.id === $("#w-court").value); const s = A.cfg.sports.find(s => s.sport === c.sport); return s.price * +$("#w-slots").value; }
 function setMode(m) {
   A.mode = m; $$("#w-mode button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === m)); $("#w-hint").textContent = MODE_HINT[m];
@@ -681,10 +671,6 @@ $("#st-save").onclick = async () => {
     toast("Login saved"); $("#st-name").value = $("#st-phone").value = $("#st-pw").value = ""; $("#st-form").classList.add("hidden"); loadHealth(); }
   catch (e) { toast(e.message, true); }
 };
-$("#h-reset").onclick = async () => {
-  if (!confirm("Reset all demo data? Every booking, member and message is replaced with fresh demo data.")) return;
-  try { await api("/api/admin/demo-reset", {}); toast("Demo data reset"); location.reload(); } catch (e) { toast(e.message, true); }
-};
 
 // ---------------- door (lock on only)
 function renderDoor() {
@@ -694,14 +680,6 @@ function renderDoor() {
       <td>${esc(a.name || (a.ref ? "booking " + a.ref : "—"))}</td><td>${a.granted ? `<span class="pill ok">opened</span>` : `<span class="pill bad">denied</span>`}</td>
       <td class="small muted">${esc(a.detail)}</td></tr>`).join("") + "</tbody>";
 }
-async function tryDoor(body) {
-  try { const r = await api("/api/admin/simulate-door", body);
-    $("#d-result").innerHTML = `<div class="demo-hint"><b>${r.open ? "Door opens" : "Stays locked"}</b> · ${esc(r.reason)}</div>`; refresh(); }
-  catch (e) { toast(e.message, true); }
-}
-$("#d-code-go").onclick = () => tryDoor({ code: $("#d-code").value });
-$("#d-fp-go").onclick = () => tryDoor({ fingerprint_user_id: $("#d-fp").value });
-
 function renderMsgs() {
   const n = A.ov.notifications;
   $("#m-log").innerHTML = `<thead><tr><th>When</th><th>To</th><th>Channel</th><th>Type</th><th>Message</th><th></th></tr></thead><tbody>` +

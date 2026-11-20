@@ -184,7 +184,7 @@ set `EVENT_NOTIFY_CHANNEL=sms` and create the `MSG91_FLOW_EVENT` template above.
 
 ## 10. Online payments (Razorpay)
 
-Leave `PAYMENT_PROVIDER=mock` until Razorpay is ready: the site then hides "Pay now" and offers
+Leave `PAYMENT_PROVIDER=none` until Razorpay is ready: the site then hides "Pay now" and offers
 reserve-and-pay-at-venue only. When ready, set `PAYMENT_PROVIDER=razorpay`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`,
 and add a webhook (event `payment.captured`) to `https://netrush.in/api/payments/razorpay-webhook` with its secret in
 `RAZORPAY_WEBHOOK_SECRET`. Test keys (`rzp_test_…`) take no money but still mark bookings paid, so use them only
